@@ -139,9 +139,11 @@ fn build_summary_result_json(
     english_markdown: &str,
     source: SummaryCacheSource,
     output_language: Option<&str>,
+    sources_used: &[String],
 ) -> serde_json::Value {
     serde_json::json!({
         "markdown": strip_title_if_present(final_markdown),
+        "sources_used": sources_used,
         ENGLISH_CACHE_FIELD: EnglishSummaryCache {
             markdown: english_markdown.to_string(),
             source,
@@ -462,6 +464,32 @@ impl SummaryService {
         };
         let template_fingerprint = template_cache_fingerprint(&template);
 
+        // Fold in the session's other sources (attachments, user notes) from
+        // the Phase 2 context assembler. Done before cache fingerprinting so
+        // adding or removing a source correctly invalidates the cache.
+        let (text, sources_used) =
+            match crate::sources::assembler::assemble_context(&pool, &meeting_id).await {
+                Ok(ctx) => {
+                    let (augmented, sources) =
+                        crate::sources::assembler::augment_transcript_text(&text, &ctx);
+                    if sources.len() > 1 {
+                        info!(
+                            "Summary input for {} includes sources: {}",
+                            meeting_id,
+                            sources.join(", ")
+                        );
+                    }
+                    (augmented, sources)
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to assemble multi-source context for {} ({}); summarizing transcript only",
+                        meeting_id, e
+                    );
+                    (text, vec!["transcript".to_string()])
+                }
+            };
+
         let cache_source = build_summary_cache_source(
             &text,
             &custom_prompt,
@@ -559,6 +587,7 @@ impl SummaryService {
                     &english_markdown,
                     cache_source,
                     summary_language.as_deref(),
+                    &sources_used,
                 );
 
                 // Update database with completed status
@@ -764,6 +793,7 @@ mod tests {
             "# Meeting\n## Points\nHello",
             source.clone(),
             Some("fr"),
+            &[],
         )
         .to_string();
 
@@ -781,6 +811,7 @@ mod tests {
             "# Meeting\n## Points\nHello",
             source.clone(),
             Some("fr"),
+            &[],
         )
         .to_string();
 
@@ -799,6 +830,7 @@ mod tests {
             "# Meeting\n## Points\nHello",
             source,
             Some("fr"),
+            &[],
         )
         .to_string();
 
@@ -919,6 +951,7 @@ mod tests {
             "# Meeting\n## Points\nHello",
             source.clone(),
             Some("fr"),
+            &[],
         )
         .to_string();
 
@@ -941,6 +974,7 @@ mod tests {
             "# Meeting\n## Points\nHello",
             source.clone(),
             Some("fr"),
+            &[],
         )
         .to_string();
 
@@ -962,6 +996,7 @@ mod tests {
             "# English Title\n## Decisions\nDone",
             sample_cache_source(),
             Some("fr"),
+            &[],
         );
 
         assert_eq!(result["markdown"], "## Decisions\nDone");

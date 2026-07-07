@@ -1,0 +1,32 @@
+{
+  "name": "Discussion",
+  "description": "For study groups, project syncs, and brainstorms: points raised, decisions, todos, open threads.",
+  "sections": [
+    {
+      "title": "Topic",
+      "instruction": "State what this discussion was about in one or two lines, based only on what was actually discussed",
+      "format": "paragraph"
+    },
+    {
+      "title": "Key Points Raised",
+      "instruction": "List the substantive points, arguments, and ideas raised. Attribute to speakers where the transcript makes the speaker clear; otherwise leave unattributed rather than guessing who said what",
+      "format": "list"
+    },
+    {
+      "title": "Decisions",
+      "instruction": "List decisions the group actually reached. A point that was discussed but not settled belongs under Open Threads, not here. If nothing was decided, write 'No decisions reached'",
+      "format": "list"
+    },
+    {
+      "title": "Todos",
+      "instruction": "List concrete tasks people took on. Include an owner only if one was clearly stated, and a due date only if one was explicitly mentioned — never invent either. If there were none, write 'None'",
+      "format": "list",
+      "item_format": "- task — *owner or 'unassigned'* — *due date or 'no date mentioned'*"
+    },
+    {
+      "title": "Open Threads",
+      "instruction": "List questions and topics that were raised but left unresolved, so the group can pick them up next time. If everything was resolved, write 'None'",
+      "format": "list"
+    }
+  ]
+}

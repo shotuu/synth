@@ -79,6 +79,27 @@ impl TranscriptsRepository {
         // Commit the transaction
         transaction.commit().await?;
 
+        // Suggest a context type from the transcript (best-effort; the user
+        // can override in the UI). Schema default stays 'meeting' when the
+        // classifier is unsure.
+        let full_text: String = transcripts
+            .iter()
+            .map(|s| s.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Some(suggested) = crate::sources::classify::suggest_context_type(&full_text) {
+            if let Err(e) = sqlx::query("UPDATE meetings SET context_type = ? WHERE id = ?")
+                .bind(suggested)
+                .bind(&meeting_id)
+                .execute(pool)
+                .await
+            {
+                error!("Failed to set suggested context_type for {}: {}", meeting_id, e);
+            } else {
+                info!("Auto-classified meeting {} as '{}'", meeting_id, suggested);
+            }
+        }
+
         // Track the raw recording in note_audio (best-effort: the meeting
         // save must succeed even if the audio file can't be located)
         if let Some(folder) = &folder_path {

@@ -660,6 +660,26 @@ async fn run_import<R: Runtime>(
         warn!("Failed to record note_audio for imported meeting {}: {}", meeting_id, e);
     }
 
+    // Suggest a context type from the imported transcript (best-effort;
+    // user-overridable in the UI)
+    let full_text: String = segments
+        .iter()
+        .map(|s| s.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if let Some(suggested) = crate::sources::classify::suggest_context_type(&full_text) {
+        if let Err(e) = sqlx::query("UPDATE meetings SET context_type = ? WHERE id = ?")
+            .bind(suggested)
+            .bind(&meeting_id)
+            .execute(app_state.db_manager.pool())
+            .await
+        {
+            warn!("Failed to set suggested context_type for {}: {}", meeting_id, e);
+        } else {
+            info!("Auto-classified imported meeting {} as '{}'", meeting_id, suggested);
+        }
+    }
+
     // Write transcripts.json and metadata.json to the meeting folder
     emit_progress(&app, "saving", 90, "Writing transcript files...");
 

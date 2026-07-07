@@ -1,0 +1,31 @@
+{
+  "name": "Coffee Chat",
+  "description": "For casual chats, networking, and catch-ups: who you met, what you talked about, what to remember.",
+  "sections": [
+    {
+      "title": "Who You Spoke With",
+      "instruction": "Name the person or people, with role/company/affiliation ONLY if they mentioned it in the conversation. Do not fill in details from outside knowledge",
+      "format": "paragraph"
+    },
+    {
+      "title": "Topics Discussed",
+      "instruction": "List the main threads of the conversation, briefly",
+      "format": "list"
+    },
+    {
+      "title": "Worth Remembering",
+      "instruction": "List personal details worth remembering for next time (their projects, interests, life events, preferences) — only things they actually said. If the conversation stayed impersonal, write 'Nothing personal shared'",
+      "format": "list"
+    },
+    {
+      "title": "Potential Follow-ups",
+      "instruction": "List concrete follow-ups that were suggested or promised in the conversation (send that link, make that intro, meet again in a month). Only include follow-ups actually mentioned; if none, write 'None discussed'",
+      "format": "list"
+    },
+    {
+      "title": "Favors & Intros",
+      "instruction": "List anything either side offered or asked for — introductions, referrals, advice, help. If none, write 'None'",
+      "format": "list"
+    }
+  ]
+}

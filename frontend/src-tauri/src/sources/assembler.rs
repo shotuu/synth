@@ -60,6 +60,54 @@ impl SessionContext {
     }
 }
 
+/// Combine the live transcript text with the session's other sources
+/// (attachments, user notes) into one summarization input, returning the
+/// augmented text and which sources it contains.
+///
+/// The transcript text comes from the caller (the frontend passes the
+/// current transcript to api_process_transcript) rather than from
+/// ctx.transcript_text, so an in-progress transcript is never stale.
+pub fn augment_transcript_text(
+    transcript_text: &str,
+    ctx: &SessionContext,
+) -> (String, Vec<String>) {
+    let mut sources_used = Vec::new();
+    if !transcript_text.trim().is_empty() {
+        sources_used.push("transcript".to_string());
+    }
+
+    if ctx.attachments.is_empty() && ctx.user_notes_markdown.is_none() {
+        return (transcript_text.to_string(), sources_used);
+    }
+
+    let mut out = String::with_capacity(transcript_text.len() + 1024);
+    out.push_str(transcript_text);
+    out.push_str("\n\n=== SUPPLEMENTARY MATERIAL (not spoken dialogue) ===\n");
+    out.push_str(
+        "The material below was provided alongside the recording. Reconcile it with the \
+         transcript: where a file and the transcript cover the same point, present it once \
+         as a combined point. Only include information supported by the transcript or this \
+         material.\n",
+    );
+
+    if !ctx.attachments.is_empty() {
+        sources_used.push("attachments".to_string());
+        for att in &ctx.attachments {
+            out.push_str(&format!(
+                "\n=== UPLOADED FILE: {} ({}) ===\n{}\n",
+                att.file_name, att.file_type, att.text
+            ));
+        }
+    }
+
+    if let Some(notes) = &ctx.user_notes_markdown {
+        sources_used.push("user_notes".to_string());
+        out.push_str(&format!("\n=== USER'S OWN NOTES ===\n{}\n", notes));
+    }
+
+    (out, sources_used)
+}
+
 pub async fn assemble_context(
     pool: &SqlitePool,
     meeting_id: &str,

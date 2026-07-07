@@ -534,6 +534,8 @@ pub fn run() {
             sources::commands::api_get_meeting_notes,
             sources::commands::api_get_note_audio,
             sources::commands::api_get_session_context,
+            sources::commands::api_get_context_type,
+            sources::commands::api_set_context_type,
             start_recording,
             stop_recording,
             is_recording,

@@ -190,6 +190,72 @@ async fn multi_source_session_end_to_end() {
     assert_eq!(after.len(), 4);
 }
 
+#[test]
+fn all_bundled_templates_are_valid() {
+    use app_lib::summary::templates::validate_and_parse_template;
+
+    let templates_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&templates_dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "json") {
+            let content = std::fs::read_to_string(&path).unwrap();
+            validate_and_parse_template(&content).unwrap_or_else(|e| {
+                panic!("Bundled template {:?} is invalid: {}", path.file_name().unwrap(), e)
+            });
+            checked += 1;
+        }
+    }
+    // The three Synth context templates plus upstream's six
+    assert!(checked >= 9, "expected at least 9 bundled templates, found {}", checked);
+
+    for id in ["lecture", "discussion", "coffee_chat"] {
+        assert!(
+            templates_dir.join(format!("{}.json", id)).exists(),
+            "missing context template '{}'",
+            id
+        );
+    }
+}
+
+#[tokio::test]
+async fn summary_input_includes_all_sources() {
+    use app_lib::sources::assembler::augment_transcript_text;
+
+    let pool = test_pool().await;
+    let meeting_id = "meeting-augment-test";
+    insert_meeting(&pool, meeting_id).await;
+
+    let tmp = tempdir();
+    let txt = tmp.join("agenda.txt");
+    std::fs::write(&txt, "Agenda: budget review, hiring plan.").unwrap();
+    attach(&pool, meeting_id, &txt).await;
+
+    MeetingNotesRepository::upsert(&pool, meeting_id, Some("Remember to ask about Q3"), None)
+        .await
+        .unwrap();
+
+    let ctx = assemble_context(&pool, meeting_id).await.unwrap();
+    let live_transcript = "Let's start with the budget.";
+    let (augmented, sources) = augment_transcript_text(live_transcript, &ctx);
+
+    assert_eq!(sources, vec!["transcript", "attachments", "user_notes"]);
+    assert!(augmented.starts_with(live_transcript), "transcript must come first");
+    assert!(augmented.contains("=== SUPPLEMENTARY MATERIAL"));
+    assert!(augmented.contains("=== UPLOADED FILE: agenda.txt (txt) ==="));
+    assert!(augmented.contains("hiring plan"));
+    assert!(augmented.contains("=== USER'S OWN NOTES ==="));
+    assert!(augmented.contains("Remember to ask about Q3"));
+
+    // A bare transcript with no other sources passes through untouched
+    let empty_ctx = assemble_context(&pool, "meeting-augment-test-nonexistent")
+        .await
+        .unwrap();
+    let (bare, bare_sources) = augment_transcript_text(live_transcript, &empty_ctx);
+    assert_eq!(bare, live_transcript);
+    assert_eq!(bare_sources, vec!["transcript"]);
+}
+
 #[tokio::test]
 async fn empty_session_has_no_sources() {
     let pool = test_pool().await;

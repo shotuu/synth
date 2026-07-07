@@ -232,6 +232,45 @@ pub async fn api_get_note_audio(
         .map_err(|e| format!("Failed to load audio metadata: {}", e))
 }
 
+const VALID_CONTEXT_TYPES: &[&str] = &["meeting", "lecture", "discussion", "coffee_chat", "custom"];
+
+#[tauri::command]
+pub async fn api_get_context_type(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<String, String> {
+    sqlx::query_scalar::<_, String>("SELECT context_type FROM meetings WHERE id = ?")
+        .bind(&meeting_id)
+        .fetch_optional(state.db_manager.pool())
+        .await
+        .map_err(|e| format!("Failed to load context type: {}", e))?
+        .ok_or_else(|| format!("Meeting not found: {}", meeting_id))
+}
+
+#[tauri::command]
+pub async fn api_set_context_type(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    context_type: String,
+) -> Result<(), String> {
+    if !VALID_CONTEXT_TYPES.contains(&context_type.as_str()) {
+        return Err(format!("Invalid context type: {}", context_type));
+    }
+
+    let result = sqlx::query("UPDATE meetings SET context_type = ? WHERE id = ?")
+        .bind(&context_type)
+        .bind(&meeting_id)
+        .execute(state.db_manager.pool())
+        .await
+        .map_err(|e| format!("Failed to set context type: {}", e))?;
+
+    if result.rows_affected() == 0 {
+        return Err(format!("Meeting not found: {}", meeting_id));
+    }
+    log_info!("Context type for {} set to '{}'", meeting_id, context_type);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn api_get_session_context(
     state: tauri::State<'_, AppState>,

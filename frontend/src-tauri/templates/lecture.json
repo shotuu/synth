@@ -1,0 +1,42 @@
+{
+  "name": "Lecture",
+  "description": "For recorded classes and lectures: key concepts, examples, homework, and exam signals.",
+  "sections": [
+    {
+      "title": "Course / Topic",
+      "instruction": "State the course name and the specific topic this lecture covered, in one line. Only use what is stated in the source material; if the course name is never mentioned, give just the topic",
+      "format": "paragraph"
+    },
+    {
+      "title": "Key Concepts",
+      "instruction": "List each major concept introduced, as '**term** — definition'. Define terms only as the lecturer or materials defined them, not from general knowledge. Mark any definition that was unclear or incomplete in the source with '(unclear in lecture)' rather than filling it in yourself",
+      "format": "list"
+    },
+    {
+      "title": "Worked Examples",
+      "instruction": "Summarize each example or problem worked through, with enough detail to recognize it when reviewing. If no examples were worked, write 'None in this lecture'",
+      "format": "list"
+    },
+    {
+      "title": "What the Lecturer Emphasized",
+      "instruction": "List points the lecturer explicitly stressed, repeated, or called important. Only include emphasis that is evident in the transcript — do not infer importance",
+      "format": "list"
+    },
+    {
+      "title": "Homework & Assignments",
+      "instruction": "List each assignment mentioned, with its due date ONLY if a date was explicitly stated. Never guess or invent a due date — if none was given, write 'no date mentioned'. If no assignments were mentioned, write 'None mentioned'",
+      "format": "list",
+      "item_format": "- **Assignment**: description — *Due: date or 'no date mentioned'*"
+    },
+    {
+      "title": "Likely Exam-Relevant",
+      "instruction": "List anything explicitly flagged as exam material ('this will be on the test', 'know this for the midterm'). Only include explicit statements; if there were none, write 'Nothing explicitly flagged'",
+      "format": "list"
+    },
+    {
+      "title": "Follow-up Reading",
+      "instruction": "List readings, chapters, or resources the lecturer or materials pointed to. If none, write 'None mentioned'",
+      "format": "list"
+    }
+  ]
+}
