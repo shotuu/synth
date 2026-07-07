@@ -1,4 +1,7 @@
+pub mod attachment;
 pub mod meeting;
+pub mod meeting_notes;
+pub mod note_audio;
 pub mod setting;
 pub mod summary;
 pub mod transcript;

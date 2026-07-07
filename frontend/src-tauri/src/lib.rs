@@ -49,6 +49,7 @@ pub mod anthropic;
 pub mod groq;
 pub mod openrouter;
 pub mod parakeet_engine;
+pub mod sources;
 pub mod state;
 pub mod summary;
 pub mod tray;
@@ -524,6 +525,15 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            // Multi-source session commands (attachments, notes, context)
+            sources::commands::api_attach_files,
+            sources::commands::api_attach_file_from_path,
+            sources::commands::api_list_attachments,
+            sources::commands::api_delete_attachment,
+            sources::commands::api_save_meeting_notes,
+            sources::commands::api_get_meeting_notes,
+            sources::commands::api_get_note_audio,
+            sources::commands::api_get_session_context,
             start_recording,
             stop_recording,
             is_recording,

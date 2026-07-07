@@ -645,6 +645,21 @@ async fn run_import<R: Runtime>(
     )
     .await?;
 
+    // Track the imported audio in note_audio (best-effort; import must not
+    // fail on metadata bookkeeping)
+    let original_name = source.file_name().map(|n| n.to_string_lossy().to_string());
+    if let Err(e) = crate::database::repositories::note_audio::NoteAudioRepository::upsert_from_file(
+        app_state.db_manager.pool(),
+        &meeting_id,
+        &dest_path,
+        "imported",
+        original_name.as_deref(),
+    )
+    .await
+    {
+        warn!("Failed to record note_audio for imported meeting {}: {}", meeting_id, e);
+    }
+
     // Write transcripts.json and metadata.json to the meeting folder
     emit_progress(&app, "saving", 90, "Writing transcript files...");
 

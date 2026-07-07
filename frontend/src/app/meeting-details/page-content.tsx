@@ -8,6 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { TranscriptPanel } from '@/components/MeetingDetails/TranscriptPanel';
 import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
+import { SourcesPanel } from '@/components/MeetingDetails/SourcesPanel';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 
 // Custom hooks
@@ -171,27 +172,31 @@ export default function PageContent({
       className="flex flex-col h-screen bg-gray-50"
     >
       <div className="flex flex-1 overflow-hidden">
-        <TranscriptPanel
-          transcripts={meetingData.transcripts}
-          customPrompt={customPrompt}
-          onPromptChange={setCustomPrompt}
-          onCopyTranscript={copyOperations.handleCopyTranscript}
-          onOpenMeetingFolder={meetingOperations.handleOpenMeetingFolder}
-          isRecording={isRecording}
-          disableAutoScroll={true}
-          // Pagination props for efficient loading
-          usePagination={true}
-          segments={segments}
-          hasMore={hasMore}
-          isLoadingMore={isLoadingMore}
-          totalCount={totalCount}
-          loadedCount={loadedCount}
-          onLoadMore={onLoadMore}
-          // Retranscription props
-          meetingId={meeting.id}
-          meetingFolderPath={meeting.folder_path}
-          onRefetchTranscripts={onRefetchTranscripts}
-        />
+        {/* Left column: source material — transcript, files, your notes */}
+        <div className="hidden md:flex md:w-1/4 lg:w-1/3 min-w-0 border-r border-gray-200 flex-col shrink-0">
+          <TranscriptPanel
+            transcripts={meetingData.transcripts}
+            customPrompt={customPrompt}
+            onPromptChange={setCustomPrompt}
+            onCopyTranscript={copyOperations.handleCopyTranscript}
+            onOpenMeetingFolder={meetingOperations.handleOpenMeetingFolder}
+            isRecording={isRecording}
+            disableAutoScroll={true}
+            // Pagination props for efficient loading
+            usePagination={true}
+            segments={segments}
+            hasMore={hasMore}
+            isLoadingMore={isLoadingMore}
+            totalCount={totalCount}
+            loadedCount={loadedCount}
+            onLoadMore={onLoadMore}
+            // Retranscription props
+            meetingId={meeting.id}
+            meetingFolderPath={meeting.folder_path}
+            onRefetchTranscripts={onRefetchTranscripts}
+          />
+          <SourcesPanel meetingId={meeting.id} />
+        </div>
         <SummaryPanel
           meeting={meeting}
           meetingTitle={meetingData.meetingTitle}

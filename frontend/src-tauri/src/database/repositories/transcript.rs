@@ -79,6 +79,29 @@ impl TranscriptsRepository {
         // Commit the transaction
         transaction.commit().await?;
 
+        // Track the raw recording in note_audio (best-effort: the meeting
+        // save must succeed even if the audio file can't be located)
+        if let Some(folder) = &folder_path {
+            match crate::audio::retranscription::find_audio_file(std::path::Path::new(folder)) {
+                Ok(audio_path) => {
+                    if let Err(e) = super::note_audio::NoteAudioRepository::upsert_from_file(
+                        pool,
+                        &meeting_id,
+                        &audio_path,
+                        "recorded",
+                        None,
+                    )
+                    .await
+                    {
+                        error!("Failed to record note_audio for {}: {}", meeting_id, e);
+                    }
+                }
+                Err(e) => {
+                    info!("No audio file found for meeting {} in {}: {}", meeting_id, folder, e);
+                }
+            }
+        }
+
         Ok(meeting_id)
     }
 

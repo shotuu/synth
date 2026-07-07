@@ -196,7 +196,6 @@ Notes:
 Since everything is local (§2), the real constraint isn't cost, it's disk space on your machine. Worth designing for deliberately since you're right that transcripts + files + audio across many sessions add up:
 
 **Where things live.** Use the OS-standard app data directory (e.g. `~/Library/Application Support/Synth` on macOS, `%APPDATA%/Synth` on Windows — Tauri gives you this path natively), structured like:
-
 ```
 Synth/
   db/scrybe.sqlite          <- tiny, even with thousands of sessions (text is cheap)
@@ -236,19 +235,16 @@ This is a good fit for Phase 6 in the roadmap below — it needs the note list U
 ## 5. Multi-source sessions — how everything comes together
 
 Each session (`note`) is a container, not just a transcript. It can have, in any combination:
-
 1. **A transcript** — from a recorded meeting/lecture (optional; some sessions might be notes-only, e.g. you paste in a PDF and just want it summarized)
 2. **File uploads** — slides, handouts, PDFs, images — parsed into `extracted_text` on upload
 3. **Your own written notes** — a block/rich-text editor, saved as `note_user_content`
 
 **The context assembler:** before calling the summarizer, a service layer gathers all available sources for a session:
-
 ```
 transcript_text   = concatenated transcript_segments, with speaker labels
 attachments_text  = concatenated note_attachments.extracted_text, labeled by filename
 user_notes_text   = note_user_content.content_markdown
 ```
-
 These get combined into a single prompt alongside the selected `summary_templates.prompt_template`, so the model is explicitly told which parts came from the recording, which came from uploaded material, and which are your own notes — and asked to reconcile them (e.g., "the slides mention X, the professor also emphasized X verbally, here's the combined point" rather than repeating it twice). Store which sources were actually used in `summaries.sources_used` so the UI can show "this summary used your transcript + 2 files + your notes."
 
 **File parsing needed on upload:**
@@ -261,7 +257,6 @@ These get combined into a single prompt alongside the selected `summary_template
 ### Importing existing audio files (not just recording live)
 
 Worth calling out: Meetily already shipped this upstream (v0.3.0 added audio file import and retranscription), so this isn't new engineering — it's wiring an existing entry point into your new pipeline. A session's transcript can originate from either:
-
 1. **Live recording** — the existing mic + system audio capture flow, or
 2. **Imported audio file** — the user picks or drags in an existing recording (wav/mp3/m4a/ogg)
 
@@ -376,13 +371,13 @@ If you're building this UI with Claude Code and have design-focused tooling avai
 Clone `Zackriya-Solutions/meetily`, get it building locally, understand its existing backend/frontend structure before changing anything.
 
 **Phase 1 — Data model extension**
-Add `context_type`, `folders`, `summary_templates`, `action_items`, `note_attachments`, `note_user_content`, `note_audio` tables to the local SQLite schema. Keep org/user/postgres tables separate — those come in Phase 7.
+Add `context_type`, `folders`, `summary_templates`, `action_items`, `note_attachments`, `note_user_content`, `note_audio` tables to the local SQLite schema as a new sqlx migration (upstream's existing migration pattern). Reconcile against what already exists rather than duplicating it — notably, replace the existing flat `folder_path` column with the relational `folders` table (§13), and check whether `meeting_notes` can be renamed/reused directly as `note_user_content` instead of creating a parallel table. Keep org/user/postgres tables separate — those come in Phase 7 (currently deferred, see §13).
 
 **Phase 2 — Multi-source sessions**
 Build file upload + parsing (PDF/DOCX/PPTX text extraction, selective OCR), the written-notes block editor, audio file import as a second entry point alongside live recording (§5), and the context-assembler service described in §5. At this point a session can hold a transcript (recorded or imported), files, and notes independently of summarization.
 
 **Phase 3 — Context-adaptive summarization**
-Build the template system described in §6, wired to the context-assembler from Phase 2 so summaries draw on all available sources. Add the auto-classification step.
+Per Phase 0 findings: upstream already has a JSON-based summary template system (six built-ins, custom-template loader) and summary-language detection, so this phase is narrower than originally scoped — it's really about mapping the brief's 5 context-type templates (§6) onto the existing template mechanism, enforcing structured JSON output per template, wiring in the context-assembler from Phase 2, and adding the auto-classification step. Confirm what the existing six built-ins actually cover before writing new ones — some may already be close enough to adapt rather than replace.
 
 **Phase 4 — Speaker diarization**
 Integrate pyannote.audio (WhisperX-style pipeline) into the existing transcription flow. Add the UI for mapping SPEAKER_00/01 labels to real names.
@@ -484,16 +479,17 @@ Worth stress-testing the spec against a couple of concrete personas before you s
 Most of these have a clear answer once you frame this as primarily a personal tool (your studying, your internship notes, maybe casual sharing with classmates) rather than something being deployed to a company. Resolving them now so Claude Code isn't guessing mid-build:
 
 **Resolved — go with these unless you have a specific reason not to:**
-
+- **Bundle identifier: change it immediately (Phase 1), don't defer it.** Forking Meetily without changing `tauri.conf.json`'s identifier means dev Synth and any installed production Meetily share the same app data directory and the same live SQLite file — a dev migration can silently mutate the production app's database out from under it. Change the identifier (e.g. `com.synth.app`) before Phase 2, and if a shared database has already been migrated in place, restore the production app's copy from a pre-migration backup rather than leaving it on a schema its binary doesn't know about.
 - **Full org backend (Phase 7):** skip it for v1. Build `share_links` (§12) instead — it covers casual sharing with classmates or coworkers without the cost of standing up Postgres/auth/roles for a user base of effectively one. Revisit Phase 7 only if you're ever actually running this for a team that needs persistent membership and permissions.
 - **Org-level compliance policy (`require_local_ai_only`):** moot if you're skipping the org backend — drop it from scope entirely for now.
 - **Custom template UI exposure:** also moot without an org backend — for a single user, there's no "admin vs. member" distinction to design around. You get full prompt-editing access to your own templates by default.
 - **Audio retention default:** delete raw audio after successful transcription, keep the transcript. Make it a toggle (§4), but this is the right default.
 - **Imported audio — copy vs. reference:** copy into app storage. Simpler, safer, and consistent with how Storage Manager treats everything else.
-- **Block editor library:** TipTap. It's the standard, well-supported choice for Notion-style block editing in a Next.js app — no real reason to spike alternatives first.
+- **Block editor library:** BlockNote, not TipTap — reversed from the earlier pick once Phase 0 orientation found BlockNote already integrated upstream (used in summary views) with an unused `meeting_notes` table that maps directly to `note_user_content`. Standardize on what's already there rather than introducing a second editor dependency.
+- **Folders: relational table, not the existing flat `folder_path` column.** Upstream stores folder as a flat string on meetings. Keep the brief's original `folders` table (parent_folder_id, icon, sort_order) instead — the Notion-style tree in §8 (nesting, icons, drag-to-reorder) needs real referential structure, not a path string. Decide this in Phase 1 before other code assumes the flat column.
+- **Phase 4 diarization delivery mechanism:** upstream archived its Python/FastAPI backend — transcription, LLM providers, and storage are now Rust-native. pyannote.audio is Python-only, so it'll need a sidecar process analogous to the existing `llama-helper` pattern rather than slotting into an existing service. Not a Phase 1 blocker, just flagged so Phase 4 doesn't assume a Python backend that no longer exists.
 - **Diarization compute:** CPU-only fallback (transcription without speaker labels) should always work; treat GPU acceleration — NVIDIA *or* Apple Silicon via PyTorch's MPS backend, since you're likely on a Mac — as a speed bonus, not a hard requirement. Don't gate the feature on hardware you may not have.
 - **Default summary language:** `auto` (match the transcript's detected language). Costs nothing to default correctly even if you never hit non-English content.
 
 **Still genuinely yours to pick — this is taste, not a default I can responsibly set for you:**
-
 - **Whether to build the "Phase 10+" bucket at all** (calendar integration, task-manager export, collection-level rollup summaries) — these are real value-adds but real scope, and whether they're worth your time depends on how much you actually end up using recurring meetings/courses in practice. Worth deciding after you've used the v1 app for a few weeks, not before.
