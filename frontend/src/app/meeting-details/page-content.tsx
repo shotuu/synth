@@ -10,6 +10,7 @@ import { TranscriptPanel } from '@/components/MeetingDetails/TranscriptPanel';
 import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
 import { SourcesPanel } from '@/components/MeetingDetails/SourcesPanel';
 import { ContextTypeSelector } from '@/components/MeetingDetails/ContextTypeSelector';
+import { SpeakerControls } from '@/components/MeetingDetails/SpeakerControls';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 
 // Custom hooks
@@ -175,10 +176,14 @@ export default function PageContent({
       <div className="flex flex-1 overflow-hidden">
         {/* Left column: source material — transcript, files, your notes */}
         <div className="hidden md:flex md:w-1/4 lg:w-1/3 min-w-0 border-r border-gray-200 flex-col shrink-0">
-          <div className="flex items-center px-4 py-2 border-b border-gray-200 bg-white">
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 bg-white overflow-x-auto">
             <ContextTypeSelector
               meetingId={meeting.id}
               onContextChange={templates.applyContextTypeDefault}
+            />
+            <SpeakerControls
+              meetingId={meeting.id}
+              onTranscriptChanged={onRefetchTranscripts}
             />
           </div>
           <TranscriptPanel

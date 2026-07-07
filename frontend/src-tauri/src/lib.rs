@@ -48,6 +48,7 @@ pub mod openai;
 pub mod anthropic;
 pub mod groq;
 pub mod openrouter;
+pub mod diarization;
 pub mod parakeet_engine;
 pub mod sources;
 pub mod state;
@@ -536,6 +537,11 @@ pub fn run() {
             sources::commands::api_get_session_context,
             sources::commands::api_get_context_type,
             sources::commands::api_set_context_type,
+            // Speaker diarization commands
+            diarization::commands::api_identify_speakers,
+            diarization::commands::api_diarization_models_present,
+            diarization::commands::api_get_speakers,
+            diarization::commands::api_rename_speaker,
             start_recording,
             stop_recording,
             is_recording,
