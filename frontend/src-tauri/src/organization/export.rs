@@ -10,7 +10,7 @@ use sqlx::SqlitePool;
 use crate::database::repositories::attachment::AttachmentsRepository;
 use crate::database::repositories::meeting_notes::MeetingNotesRepository;
 use crate::database::repositories::summary::SummaryProcessesRepository;
-use crate::markdown_blocks::cmark_options;
+use crate::markdown_blocks::{cmark_options, normalize_pseudo_headings};
 pub use crate::markdown_blocks::{parse_markdown_blocks, Block};
 
 pub struct SpeakerColor {
@@ -51,7 +51,8 @@ fn escape_html(text: &str) -> String {
 }
 
 fn markdown_to_html(markdown: &str) -> String {
-    let parser = Parser::new_ext(markdown, cmark_options());
+    let markdown = normalize_pseudo_headings(markdown);
+    let parser = Parser::new_ext(&markdown, cmark_options());
     let mut out = String::new();
     html::push_html(&mut out, parser);
     out
@@ -287,6 +288,19 @@ mod tests {
         assert!(!html.contains(">mic<"));
         assert!(html.contains("[00:00]"));
         assert!(html.contains("[00:03]"));
+    }
+
+    /// Real model output uses whole-line "**Title**" instead of an ATX
+    /// heading (see markdown_blocks::normalize_pseudo_headings); the HTML
+    /// exporter must render it as a real heading, not a bold paragraph.
+    #[test]
+    fn pseudo_headings_render_as_real_headings() {
+        let mut data = sample_data();
+        data.summary_markdown = Some("**Key Decisions**\n\n- Ship it\n".to_string());
+
+        let html = render_html(&data);
+        assert!(html.contains("<h2>Key Decisions</h2>"), "got: {html}");
+        assert!(!html.contains("<strong>Key Decisions</strong>"));
     }
 
     #[test]

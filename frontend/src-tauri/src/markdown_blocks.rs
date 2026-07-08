@@ -32,12 +32,14 @@ pub fn cmark_options() -> Options {
 /// not an ATX `##` heading -- and models reliably follow that convention.
 /// Real pulldown_cmark parses that as Strong-wrapped-Paragraph, not
 /// Tag::Heading, so every consumer that walks headings (section detection
-/// for action-item extraction, heading-styled rendering in PDF/DOCX) would
-/// silently miss every section unless these get normalized to real
+/// for action-item extraction, heading-styled rendering in PDF/DOCX/HTML)
+/// would silently miss every section unless these get normalized to real
 /// headings first. Only whole-line bold matches -- a bullet like
 /// "- **Assignment**: text" is untouched since the line doesn't start with
-/// "**" after trimming.
-fn normalize_pseudo_headings(markdown: &str) -> String {
+/// "**" after trimming. Public because the HTML exporter (organization::export)
+/// runs markdown straight through pulldown_cmark's HTML renderer and needs
+/// this same normalization pass first.
+pub fn normalize_pseudo_headings(markdown: &str) -> String {
     markdown
         .lines()
         .map(|line| {
