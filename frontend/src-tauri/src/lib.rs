@@ -49,6 +49,7 @@ pub mod anthropic;
 pub mod groq;
 pub mod openrouter;
 pub mod diarization;
+pub mod markdown_blocks;
 pub mod organization;
 pub mod parakeet_engine;
 pub mod sources;

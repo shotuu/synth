@@ -609,6 +609,31 @@ impl SummaryService {
                         "Summary saved successfully for meeting_id: {}",
                         meeting_id
                     );
+
+                    // Extract structured action items from the freshly
+                    // generated summary so the cross-note action item view
+                    // (Phase 5) has a producer, not just a reader. Never
+                    // touches items the user has already marked done.
+                    let extracted =
+                        crate::organization::action_item_extraction::extract_action_items(&final_markdown);
+                    if !extracted.is_empty() {
+                        match crate::organization::action_items::replace_undone_action_items(
+                            &pool,
+                            &meeting_id,
+                            &extracted,
+                        )
+                        .await
+                        {
+                            Ok(count) => info!(
+                                "Extracted {} action item(s) for meeting_id: {}",
+                                count, meeting_id
+                            ),
+                            Err(e) => error!(
+                                "Failed to save extracted action items for {}: {}",
+                                meeting_id, e
+                            ),
+                        }
+                    }
                 }
             }
             Err(e) => {

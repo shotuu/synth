@@ -3,6 +3,7 @@
 /// HTML export as the practical stand-in for §12's share_links (this app
 /// has no server to host a live link on — see export.rs).
 pub mod action_item_commands;
+pub mod action_item_extraction;
 pub mod action_items;
 pub mod compress;
 pub mod export;

@@ -4,12 +4,14 @@
 /// (fetch_export_data) and, for PDF/DOCX, one simplified block model
 /// (parse_markdown_blocks) since those renderers need structured elements
 /// rather than raw markdown/HTML.
-use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{html, Parser};
 use sqlx::SqlitePool;
 
 use crate::database::repositories::attachment::AttachmentsRepository;
 use crate::database::repositories::meeting_notes::MeetingNotesRepository;
 use crate::database::repositories::summary::SummaryProcessesRepository;
+use crate::markdown_blocks::cmark_options;
+pub use crate::markdown_blocks::{parse_markdown_blocks, Block};
 
 pub struct SpeakerColor {
     pub bg: &'static str,
@@ -55,13 +57,6 @@ fn markdown_to_html(markdown: &str) -> String {
     out
 }
 
-fn cmark_options() -> Options {
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_TABLES);
-    options.insert(Options::ENABLE_STRIKETHROUGH);
-    options
-}
-
 pub fn format_timestamp(seconds: Option<f64>) -> String {
     match seconds {
         Some(s) if s >= 0.0 => {
@@ -69,86 +64,6 @@ pub fn format_timestamp(seconds: Option<f64>) -> String {
             format!("{:02}:{:02}", total / 60, total % 60)
         }
         _ => "--:--".to_string(),
-    }
-}
-
-/// A deliberately simplified view of markdown for renderers (PDF, DOCX)
-/// that need structured elements rather than raw markup. Inline formatting
-/// (bold/italic/links) is flattened to plain text -- summaries are
-/// heading/paragraph/list heavy, and preserving that structure while
-/// dropping inline styling is a reasonable trade for keeping the PDF/DOCX
-/// renderers simple.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Block {
-    Heading(u8, String),
-    Paragraph(String),
-    ListItem(String),
-}
-
-pub fn parse_markdown_blocks(markdown: &str) -> Vec<Block> {
-    let parser = Parser::new_ext(markdown, cmark_options());
-    let mut blocks = Vec::new();
-    let mut buffer = String::new();
-    let mut heading_level: Option<u8> = None;
-    let mut in_item = false;
-
-    for event in parser {
-        match event {
-            Event::Start(Tag::Heading { level, .. }) => {
-                heading_level = Some(heading_level_to_u8(level));
-                buffer.clear();
-            }
-            Event::End(TagEnd::Heading(_)) => {
-                if let Some(level) = heading_level.take() {
-                    let text = buffer.trim().to_string();
-                    if !text.is_empty() {
-                        blocks.push(Block::Heading(level, text));
-                    }
-                }
-                buffer.clear();
-            }
-            Event::Start(Tag::Item) => {
-                in_item = true;
-                buffer.clear();
-            }
-            Event::End(TagEnd::Item) => {
-                in_item = false;
-                let text = buffer.trim().to_string();
-                if !text.is_empty() {
-                    blocks.push(Block::ListItem(text));
-                }
-                buffer.clear();
-            }
-            Event::Start(Tag::Paragraph) => {
-                buffer.clear();
-            }
-            Event::End(TagEnd::Paragraph) => {
-                if !in_item {
-                    let text = buffer.trim().to_string();
-                    if !text.is_empty() {
-                        blocks.push(Block::Paragraph(text));
-                    }
-                }
-                buffer.clear();
-            }
-            Event::Text(t) => buffer.push_str(&t),
-            Event::Code(t) => buffer.push_str(&t),
-            Event::SoftBreak | Event::HardBreak => buffer.push(' '),
-            _ => {}
-        }
-    }
-
-    blocks
-}
-
-fn heading_level_to_u8(level: HeadingLevel) -> u8 {
-    match level {
-        HeadingLevel::H1 => 1,
-        HeadingLevel::H2 => 2,
-        HeadingLevel::H3 => 3,
-        HeadingLevel::H4 => 4,
-        HeadingLevel::H5 => 5,
-        HeadingLevel::H6 => 6,
     }
 }
 
@@ -406,22 +321,5 @@ mod tests {
         assert!(html.contains("Q3 roadmap details"));
         assert!(html.contains("photo.png"));
         assert!(html.contains("No text extracted"));
-    }
-
-    #[test]
-    fn parses_markdown_into_blocks() {
-        let blocks = parse_markdown_blocks(
-            "# Title\nIntro paragraph.\n## Section\n- item one\n- item two\n",
-        );
-        assert_eq!(
-            blocks,
-            vec![
-                Block::Heading(1, "Title".to_string()),
-                Block::Paragraph("Intro paragraph.".to_string()),
-                Block::Heading(2, "Section".to_string()),
-                Block::ListItem("item one".to_string()),
-                Block::ListItem("item two".to_string()),
-            ]
-        );
     }
 }

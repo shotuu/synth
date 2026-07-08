@@ -25,7 +25,8 @@ use app_lib::database::repositories::folder::FoldersRepository;
 use app_lib::database::repositories::meeting_notes::MeetingNotesRepository;
 use app_lib::database::repositories::note_audio::NoteAudioRepository;
 use app_lib::diarization::pipeline::{assign_speaker_labels, diarize_file};
-use app_lib::organization::action_items::{list_action_items, ActionItemFilter};
+use app_lib::organization::action_item_extraction::extract_action_items;
+use app_lib::organization::action_items::{list_action_items, replace_undone_action_items, ActionItemFilter};
 use app_lib::organization::export::fetch_export_data;
 use app_lib::organization::export_docx::render_docx;
 use app_lib::organization::export_pdf::render_pdf;
@@ -231,32 +232,33 @@ async fn full_session_click_through() {
     .await
     .unwrap();
 
-    // ---- 8. Cross-note action items: verify the query works, and
-    // document the real gap this test surfaces -- nothing in the app
-    // actually parses generated summary markdown into action_items rows,
-    // so the cross-note action item view stays empty even after a real
-    // summary with an Action Items-shaped section exists. ----
-    let items_before = list_action_items(&pool, &ActionItemFilter::default()).await.unwrap();
+    // ---- 8. Cross-note action items: extract from the REAL generated
+    // summary (the transcript explicitly mentions "problem set six is due
+    // Friday", and the lecture template's Homework & Assignments section
+    // instructs the model to capture exactly this), same call the real
+    // summary-completion path now makes. ----
+    let extracted = extract_action_items(&final_markdown);
+    eprintln!("--- Extracted action items ---\n{:#?}\n---", extracted);
     assert!(
-        items_before.is_empty(),
-        "known gap: summary generation never populates action_items -- if this now fails, \
-         someone wired up that extraction and this assertion (and the gap) should be removed"
+        !extracted.is_empty(),
+        "expected the real model to surface the homework mentioned in the transcript \
+         (\"problem set six is due Friday\") under the lecture template's Homework & \
+         Assignments section; got no extractable items from:\n{}",
+        final_markdown
     );
-    // Prove the query itself works correctly once a row exists (e.g. added
-    // manually via a future extraction step, or by hand later).
-    sqlx::query("INSERT INTO action_items (id, meeting_id, description, due_date) VALUES ('a1', ?, 'Read chapter on Paxos', '2026-08-01')")
-        .bind(&meeting_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+
+    let saved_count = replace_undone_action_items(&pool, &meeting_id, &extracted).await.unwrap();
+    assert_eq!(saved_count, extracted.len());
+
     let items_after = list_action_items(
         &pool,
         &ActionItemFilter { folder_id: Some(folder.id.clone()), ..Default::default() },
     )
     .await
     .unwrap();
-    assert_eq!(items_after.len(), 1);
+    assert_eq!(items_after.len(), extracted.len(), "cross-note view must reflect exactly what was extracted");
     assert_eq!(items_after[0].meeting_title, "Lecture 12: Consensus Algorithms");
+    assert_eq!(items_after[0].context_type, "lecture");
 
     // ---- 9. Speaker diarization on a REAL synthesized two-voice
     // recording (professor + student asking a question) ----
@@ -336,6 +338,7 @@ async fn full_session_click_through() {
     eprintln!("Sources used: {:?}", sources_used);
     eprintln!("Summary: {} chars across {} chunk(s)", final_markdown.len(), num_chunks);
     eprintln!("Speakers labeled: {}/{} transcript rows", labeled_count, rows.len());
+    eprintln!("Action items extracted: {}", items_after.len());
     eprintln!("Exports: PDF {} bytes, DOCX valid zip with real content", pdf_bytes.len());
 
     std::fs::remove_dir_all(&tmp).ok();

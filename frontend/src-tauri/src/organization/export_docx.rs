@@ -1,6 +1,6 @@
 /// DOCX export via docx-rs, using the shared ExportData/Block model.
 use anyhow::{anyhow, Result};
-use docx_rs::{AlignmentType, Docx, Paragraph, Run};
+use docx_rs::{AlignmentType, Docx, Paragraph, Run, Table, TableCell, TableRow};
 use std::fs::File;
 use std::path::Path;
 
@@ -27,9 +27,31 @@ fn push_blocks(mut docx: Docx, blocks: &[Block]) -> Docx {
                 Paragraph::new()
                     .add_run(Run::new().add_text(format!("\u{2022} {}", text)).size(20)),
             ),
+            Block::Table { headers, rows } => docx.add_table(build_table(headers, rows)),
         };
     }
     docx
+}
+
+fn build_table(headers: &[String], rows: &[Vec<String>]) -> Table {
+    let mut table_rows = Vec::new();
+
+    if !headers.is_empty() {
+        let cells: Vec<TableCell> = headers
+            .iter()
+            .map(|h| TableCell::new().add_paragraph(Paragraph::new().add_run(Run::new().add_text(h.as_str()).bold().size(20))))
+            .collect();
+        table_rows.push(TableRow::new(cells));
+    }
+    for row in rows {
+        let cells: Vec<TableCell> = row
+            .iter()
+            .map(|c| TableCell::new().add_paragraph(Paragraph::new().add_run(Run::new().add_text(c.as_str()).size(20))))
+            .collect();
+        table_rows.push(TableRow::new(cells));
+    }
+
+    Table::new(table_rows)
 }
 
 fn section_heading(docx: Docx, text: &str) -> Docx {
@@ -172,6 +194,33 @@ mod tests {
         assert!(doc_xml.contains("Ship it"));
         assert!(doc_xml.contains("Speaker 1"));
         assert!(doc_xml.contains("Budget review"));
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn renders_table_content_in_docx_xml() {
+        let mut data = sample_data();
+        data.summary_markdown = Some(
+            "# Overview\n## Action Items\n\
+             | **Owner** | Task | Due |\n\
+             | --- | --- | --- |\n\
+             | Alice | Ship the launch banner | 2026-08-01 |\n"
+                .to_string(),
+        );
+
+        let tmp = std::env::temp_dir().join(format!("synth-docx-table-test-{}.docx", std::process::id()));
+        render_docx(&data, &tmp).expect("DOCX rendering with a table should succeed");
+
+        let file = File::open(&tmp).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let mut doc_xml = String::new();
+        archive.by_name("word/document.xml").unwrap().read_to_string(&mut doc_xml).unwrap();
+
+        assert!(doc_xml.contains("<w:tbl>") || doc_xml.contains("w:tbl"), "must contain an actual Word table element");
+        assert!(doc_xml.contains("Alice"));
+        assert!(doc_xml.contains("Ship the launch banner"));
+        assert!(doc_xml.contains("2026-08-01"));
 
         std::fs::remove_file(&tmp).ok();
     }

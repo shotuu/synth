@@ -3,7 +3,7 @@
 /// with Arial) is embedded in the binary via include_bytes! so this works
 /// identically in dev and bundled builds with no runtime resource lookup.
 use anyhow::{anyhow, Result};
-use genpdf::elements::{Break, Paragraph, UnorderedList};
+use genpdf::elements::{Break, FrameCellDecorator, Paragraph, TableLayout, UnorderedList};
 use genpdf::style::Style;
 use genpdf::{fonts, Alignment, Document, Element, SimplePageDecorator};
 use std::path::Path;
@@ -51,12 +51,45 @@ fn push_blocks(doc: &mut Document, blocks: &[Block]) {
                 doc.push(Paragraph::new(text.as_str()));
                 doc.push(Break::new(0.3));
             }
+            Block::Table { headers, rows } => {
+                flush_list(doc, &mut list);
+                doc.push(build_table(headers, rows));
+                doc.push(Break::new(0.3));
+            }
             Block::ListItem(text) => {
                 list.get_or_insert_with(UnorderedList::new).push(Paragraph::new(text.as_str()));
             }
         }
     }
     flush_list(doc, &mut list);
+}
+
+fn build_table(headers: &[String], rows: &[Vec<String>]) -> TableLayout {
+    let col_count = headers.len().max(rows.iter().map(|r| r.len()).max().unwrap_or(0)).max(1);
+    let mut table = TableLayout::new(vec![1; col_count]);
+    table.set_cell_decorator(FrameCellDecorator::new(true, true, false));
+
+    // push_row requires exactly col_count cells; pad ragged rows (an LLM's
+    // markdown table isn't always perfectly rectangular) rather than
+    // silently dropping the whole row.
+    let padded = |row: &[String]| -> Vec<Box<dyn Element>> {
+        (0..col_count)
+            .map(|i| row.get(i).map(String::as_str).unwrap_or(""))
+            .map(|c| Box::new(Paragraph::new(c)) as Box<dyn Element>)
+            .collect()
+    };
+
+    if !headers.is_empty() {
+        let cells: Vec<Box<dyn Element>> = (0..col_count)
+            .map(|i| headers.get(i).map(String::as_str).unwrap_or(""))
+            .map(|h| Box::new(Paragraph::new(h).styled(Style::new().bold())) as Box<dyn Element>)
+            .collect();
+        let _ = table.push_row(cells);
+    }
+    for row in rows {
+        let _ = table.push_row(padded(row));
+    }
+    table
 }
 
 pub fn render_pdf(data: &ExportData, out_path: &Path) -> Result<()> {
@@ -173,6 +206,31 @@ mod tests {
         let bytes = std::fs::read(&tmp).expect("PDF file should exist");
         assert!(bytes.starts_with(b"%PDF-"), "output must be a valid PDF file");
         assert!(bytes.len() > 1000, "PDF should have real content, got {} bytes", bytes.len());
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn renders_table_content_readable_back_from_pdf() {
+        let mut data = sample_data();
+        data.summary_markdown = Some(
+            "# Overview\n## Action Items\n\
+             | **Owner** | Task | Due |\n\
+             | --- | --- | --- |\n\
+             | Alice | Ship the launch banner | 2026-08-01 |\n"
+                .to_string(),
+        );
+
+        let tmp = std::env::temp_dir().join(format!("synth-pdf-table-test-{}.pdf", std::process::id()));
+        render_pdf(&data, &tmp).expect("PDF rendering with a table should succeed");
+
+        // Read the table content back out of the actual rendered PDF bytes
+        // (via the same pdf-extract crate used for attachment parsing) --
+        // proof the table isn't silently dropped, not just "didn't crash".
+        let text = pdf_extract::extract_text(&tmp).expect("should be able to extract text back out");
+        assert!(text.contains("Alice"), "table cell content must appear in the rendered PDF: {:?}", text);
+        assert!(text.contains("Ship the launch banner"));
+        assert!(text.contains("2026-08-01"));
 
         std::fs::remove_file(&tmp).ok();
     }
