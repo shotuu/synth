@@ -246,7 +246,12 @@ async fn delete_meeting_with_transaction(
         return Ok(false);
     }
 
-    // Delete from related tables in proper order
+    // Delete from related tables in proper order. SQLite foreign keys are
+    // never PRAGMA-enabled in this app, so ON DELETE CASCADE in the schema
+    // is decorative -- every child table needs an explicit delete here or
+    // its rows are orphaned. (Phases 2-5 tables added since this function
+    // was first written: action_items, note_attachments, note_audio,
+    // meeting_notes.)
     // 1. Delete from transcript_chunks
     sqlx::query("DELETE FROM transcript_chunks WHERE meeting_id = ?")
         .bind(meeting_id)
@@ -265,7 +270,32 @@ async fn delete_meeting_with_transaction(
         .execute(&mut *transaction)
         .await?;
 
-    // 4. Finally, delete the meeting
+    // 4. Delete action items
+    sqlx::query("DELETE FROM action_items WHERE meeting_id = ?")
+        .bind(meeting_id)
+        .execute(&mut *transaction)
+        .await?;
+
+    // 5. Delete attachment records (caller removes the underlying files;
+    // see organization::storage::delete_sessions)
+    sqlx::query("DELETE FROM note_attachments WHERE meeting_id = ?")
+        .bind(meeting_id)
+        .execute(&mut *transaction)
+        .await?;
+
+    // 6. Delete audio tracking record
+    sqlx::query("DELETE FROM note_audio WHERE meeting_id = ?")
+        .bind(meeting_id)
+        .execute(&mut *transaction)
+        .await?;
+
+    // 7. Delete user notes
+    sqlx::query("DELETE FROM meeting_notes WHERE meeting_id = ?")
+        .bind(meeting_id)
+        .execute(&mut *transaction)
+        .await?;
+
+    // 8. Finally, delete the meeting
     let result = sqlx::query("DELETE FROM meetings WHERE id = ?")
         .bind(meeting_id)
         .execute(&mut *transaction)

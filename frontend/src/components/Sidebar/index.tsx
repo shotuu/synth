@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload, Folder as FolderIcon, FolderPlus, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload, Folder as FolderIcon, FolderPlus, Check, HardDrive } from 'lucide-react';
 import { CONTEXT_STYLES, ContextType } from '@/components/MeetingDetails/ContextTypeSelector';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
@@ -917,6 +917,16 @@ const Sidebar: React.FC = () => {
                   className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md transition-colors ${pathname === '/action-items' ? 'bg-gray-100 text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
                 >
                   <Check className="w-3.5 h-3.5" /> Action Items
+                </button>
+              </div>
+            )}
+            {!isCollapsed && (
+              <div className="flex mx-3 mt-1 gap-1">
+                <button
+                  onClick={() => router.push('/storage')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md transition-colors ${pathname === '/storage' ? 'bg-gray-100 text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
+                >
+                  <HardDrive className="w-3.5 h-3.5" /> Storage
                 </button>
               </div>
             )}

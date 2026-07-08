@@ -4,6 +4,9 @@
 /// has no server to host a live link on — see export.rs).
 pub mod action_item_commands;
 pub mod action_items;
+pub mod compress;
 pub mod export;
 pub mod export_commands;
 pub mod folder_commands;
+pub mod storage;
+pub mod storage_commands;

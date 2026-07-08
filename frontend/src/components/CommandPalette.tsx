@@ -11,7 +11,7 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import { Home, Folder as FolderIcon, CheckSquare, Settings, FileText } from 'lucide-react';
+import { Home, Folder as FolderIcon, CheckSquare, Settings, FileText, HardDrive } from 'lucide-react';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { CONTEXT_STYLES, ContextType } from '@/components/MeetingDetails/ContextTypeSelector';
 
@@ -96,6 +96,9 @@ export function CommandPalette() {
             </CommandItem>
             <CommandItem onSelect={() => go('/action-items')}>
               <CheckSquare className="w-4 h-4 mr-2" /> Action Items
+            </CommandItem>
+            <CommandItem onSelect={() => go('/storage')}>
+              <HardDrive className="w-4 h-4 mr-2" /> Storage Manager
             </CommandItem>
             <CommandItem onSelect={() => go('/settings')}>
               <Settings className="w-4 h-4 mr-2" /> Settings
