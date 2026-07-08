@@ -1,4 +1,5 @@
 pub mod attachment;
+pub mod folder;
 pub mod meeting;
 pub mod meeting_notes;
 pub mod note_audio;

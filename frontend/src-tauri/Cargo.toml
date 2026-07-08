@@ -158,6 +158,7 @@ pdf-extract = "0.12.0"
 quick-xml = "0.39.4"
 zip = "2.2"
 pyannote-rs = "0.3.4"
+pulldown-cmark = "0.13.4"
 
 # Desktop-only single instance guard
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]

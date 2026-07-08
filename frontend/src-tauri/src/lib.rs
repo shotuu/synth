@@ -49,6 +49,7 @@ pub mod anthropic;
 pub mod groq;
 pub mod openrouter;
 pub mod diarization;
+pub mod organization;
 pub mod parakeet_engine;
 pub mod sources;
 pub mod state;
@@ -542,6 +543,19 @@ pub fn run() {
             diarization::commands::api_diarization_models_present,
             diarization::commands::api_get_speakers,
             diarization::commands::api_rename_speaker,
+            // Organization commands (folders, tags, action items, export)
+            organization::folder_commands::api_create_folder,
+            organization::folder_commands::api_list_folders,
+            organization::folder_commands::api_rename_folder,
+            organization::folder_commands::api_set_folder_icon,
+            organization::folder_commands::api_move_folder,
+            organization::folder_commands::api_delete_folder,
+            organization::folder_commands::api_set_meeting_folder,
+            organization::folder_commands::api_set_meeting_tags,
+            organization::folder_commands::api_list_all_tags,
+            organization::action_item_commands::api_list_action_items,
+            organization::action_item_commands::api_toggle_action_item,
+            organization::export_commands::api_export_session_html,
             start_recording,
             stop_recording,
             is_recording,

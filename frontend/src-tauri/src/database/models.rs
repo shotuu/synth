@@ -9,6 +9,12 @@ pub struct MeetingModel {
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub folder_path: Option<String>,
+    pub context_type: String,
+    pub folder_id: Option<String>,
+    pub icon: Option<String>,
+    pub series_id: Option<String>,
+    /// JSON array of strings, e.g. ["cs33","exam-prep"]; SQLite has no array type
+    pub tags: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]

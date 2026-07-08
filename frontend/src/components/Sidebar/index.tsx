@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload, Folder as FolderIcon, FolderPlus, Check } from 'lucide-react';
+import { CONTEXT_STYLES, ContextType } from '@/components/MeetingDetails/ContextTypeSelector';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
@@ -37,6 +38,9 @@ interface SidebarItem {
   title: string;
   type: 'folder' | 'file';
   children?: SidebarItem[];
+  contextType?: string;
+  icon?: string | null;
+  isRealFolder?: boolean;
 }
 
 const Sidebar: React.FC = () => {
@@ -54,7 +58,10 @@ const Sidebar: React.FC = () => {
     isSearching,
     meetings,
     setMeetings,
-    serverAddress
+    serverAddress,
+    folders,
+    refetchFolders,
+    refetchMeetings,
   } = useSidebar();
 
   // Get recording state from RecordingStateContext (single source of truth)
@@ -93,6 +100,104 @@ const Sidebar: React.FC = () => {
       setExpandedFolders(newExpanded);
     }
   }, [expandedFolders]);
+
+  // Auto-expand newly created real folders the first time they're seen, so
+  // a fresh folder isn't invisible-by-default; collapsing afterward sticks.
+  const seenFolderIdsRef = React.useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const unseen = folders.filter(f => !seenFolderIdsRef.current.has(f.id));
+    if (unseen.length === 0) return;
+    unseen.forEach(f => seenFolderIdsRef.current.add(f.id));
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      unseen.forEach(f => next.add(f.id));
+      return next;
+    });
+  }, [folders]);
+
+  // Personal organization (Phase 5): folder creation, rename, and drag/drop
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renamingFolderName, setRenamingFolderName] = useState('');
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [confirmDeleteFolderId, setConfirmDeleteFolderId] = useState<string | null>(null);
+
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    setIsCreatingFolder(false);
+    setNewFolderName('');
+    if (!name) return;
+    try {
+      await invoke('api_create_folder', { parentFolderId: null, name, icon: null });
+      await refetchFolders();
+      toast.success(`Folder "${name}" created`);
+    } catch (error) {
+      console.error('Failed to create folder:', error);
+      toast.error('Failed to create folder');
+    }
+  };
+
+  const commitFolderRename = async (folderId: string) => {
+    const name = renamingFolderName.trim();
+    setRenamingFolderId(null);
+    if (!name) return;
+    try {
+      await invoke('api_rename_folder', { folderId, name });
+      await refetchFolders();
+    } catch (error) {
+      console.error('Failed to rename folder:', error);
+      toast.error('Failed to rename folder');
+    }
+  };
+
+  const handleDeleteFolder = async (folderId: string) => {
+    setConfirmDeleteFolderId(null);
+    try {
+      await invoke('api_delete_folder', { folderId });
+      await Promise.all([refetchFolders(), refetchMeetings()]);
+      toast.success('Folder deleted — sessions inside were kept, just unfiled');
+    } catch (error) {
+      console.error('Failed to delete folder:', error);
+      toast.error('Failed to delete folder');
+    }
+  };
+
+  // Native HTML5 drag-and-drop: meetings and folders carry a small JSON
+  // payload identifying what's being dragged; folder headers accept drops.
+  const handleItemDragStart = (e: React.DragEvent, item: SidebarItem) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData(
+      'application/json',
+      JSON.stringify({ id: item.id, kind: item.type === 'folder' ? 'folder' : 'meeting' })
+    );
+  };
+
+  const handleFolderDrop = async (e: React.DragEvent, targetFolderId: string | null) => {
+    e.preventDefault();
+    setDragOverFolderId(null);
+    const raw = e.dataTransfer.getData('application/json');
+    if (!raw) return;
+    try {
+      const dragged = JSON.parse(raw) as { id: string; kind: 'folder' | 'meeting' };
+      if (dragged.kind === 'meeting') {
+        if (dragged.id === targetFolderId) return;
+        await invoke('api_set_meeting_folder', { meetingId: dragged.id, folderId: targetFolderId });
+        await refetchMeetings();
+      } else {
+        if (dragged.id === targetFolderId) return;
+        await invoke('api_move_folder', {
+          folderId: dragged.id,
+          newParentId: targetFolderId,
+          newSortOrder: 0,
+        });
+        await refetchFolders();
+      }
+    } catch (error) {
+      console.error('Failed to move item:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to move item');
+    }
+  };
 
   // useEffect(() => {
   //   if (settingsSaveSuccess !== null) {
@@ -563,15 +668,27 @@ const Sidebar: React.FC = () => {
 
     if (isCollapsed) return null;
 
+    const isRealFolder = item.type === 'folder' && item.isRealFolder;
+    const isRenamingThisFolder = renamingFolderId === item.id;
+    const isDragOver = dragOverFolderId === item.id;
+    const contextStyle = item.contextType && CONTEXT_STYLES[item.contextType as ContextType]
+      ? CONTEXT_STYLES[item.contextType as ContextType]
+      : null;
+
     return (
       <div key={item.id}>
         <div
+          draggable={isRealFolder || isMeetingItem}
+          onDragStart={isRealFolder || isMeetingItem ? (e) => handleItemDragStart(e, item) : undefined}
+          onDragOver={item.type === 'folder' ? (e) => { e.preventDefault(); setDragOverFolderId(item.id); } : undefined}
+          onDragLeave={item.type === 'folder' ? () => setDragOverFolderId(prev => prev === item.id ? null : prev) : undefined}
+          onDrop={item.type === 'folder' ? (e) => handleFolderDrop(e, item.id === 'meetings' ? null : item.id) : undefined}
           className={`flex items-center transition-all duration-150 group ${item.type === 'folder' && depth === 0
             ? 'p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg'
             : `px-3 py-2 my-0.5 rounded-md text-sm ${isActive ? 'bg-blue-100 text-blue-700 font-medium' :
               hasTranscriptMatch ? 'bg-yellow-50' : 'hover:bg-gray-50'
             } cursor-pointer`
-            }`}
+            } ${isDragOver ? 'ring-2 ring-blue-400 bg-blue-50' : ''}`}
           style={item.type === 'folder' && depth === 0 ? {} : { paddingLeft }}
           onClick={() => {
             if (item.type === 'folder') {
@@ -588,10 +705,60 @@ const Sidebar: React.FC = () => {
             <>
               {item.id === 'meetings' ? (
                 <Calendar className="w-4 h-4 mr-2" />
-              ) : item.id === 'notes' ? (
-                <Calendar className="w-4 h-4 mr-2" />
-              ) : null}
-              <span className={depth === 0 ? "" : "font-medium"}>{item.title}</span>
+              ) : item.icon ? (
+                <span className="mr-2">{item.icon}</span>
+              ) : (
+                <FolderIcon className="w-4 h-4 mr-2 text-gray-500" />
+              )}
+              {isRenamingThisFolder ? (
+                <input
+                  autoFocus
+                  value={renamingFolderName}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setRenamingFolderName(e.target.value)}
+                  onBlur={() => commitFolderRename(item.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitFolderRename(item.id);
+                    if (e.key === 'Escape') setRenamingFolderId(null);
+                  }}
+                  className="font-medium text-sm border border-gray-300 rounded px-1 py-0.5 flex-1 min-w-0"
+                />
+              ) : (
+                <span className={depth === 0 ? "" : "font-medium"}>{item.title}</span>
+              )}
+              {isRealFolder && !isRenamingThisFolder && (
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ml-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenamingFolderId(item.id);
+                      setRenamingFolderName(item.title);
+                    }}
+                    className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
+                    aria-label="Rename folder"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  {confirmDeleteFolderId === item.id ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteFolder(item.id); }}
+                      className="text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
+                      aria-label="Confirm delete folder"
+                      title="Click again to confirm"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteFolderId(item.id); }}
+                      className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
+                      aria-label="Delete folder"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="ml-auto">
                 {isExpanded ? (
                   <ChevronDown className="w-4 h-4 text-gray-500" />
@@ -607,8 +774,14 @@ const Sidebar: React.FC = () => {
             <div className="flex flex-col w-full">
               <div className="flex items-center w-full">
                 {isMeetingItem ? (
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-gray-100">
+                  <div className="relative flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-gray-100">
                     <File className="w-3.5 h-3.5 text-gray-600" />
+                    {contextStyle && (
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1 ring-white ${contextStyle.dot}`}
+                        title={contextStyle.label}
+                      />
+                    )}
                   </div>
                 ) : (
                   <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-blue-100">
@@ -731,27 +904,143 @@ const Sidebar: React.FC = () => {
                 <span>Home</span>
               </div>
             )}
+            {!isCollapsed && (
+              <div className="flex mx-3 mt-1 gap-1">
+                <button
+                  onClick={() => router.push('/sessions')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md transition-colors ${pathname === '/sessions' ? 'bg-gray-100 text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
+                >
+                  <FolderIcon className="w-3.5 h-3.5" /> All Sessions
+                </button>
+                <button
+                  onClick={() => router.push('/action-items')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md transition-colors ${pathname === '/action-items' ? 'bg-gray-100 text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
+                >
+                  <Check className="w-3.5 h-3.5" /> Action Items
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Content area */}
           <div className="flex-1 flex flex-col min-h-0">
             {renderCollapsedIcons()}
-            {/* Meeting Notes folder header - fixed */}
+            {/* Top-level folders + Meeting Notes header - fixed */}
             {!isCollapsed && (
               <div className="flex-shrink-0">
-                {filteredSidebarItems.filter(item => item.type === 'folder').map(item => (
-                  <div key={item.id}>
-                    <div
-                      className="flex items-center transition-all duration-150 p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg"
-                    >
-                      <NotebookPen className="w-4 h-4 mr-2 text-gray-600" />
-                      <span className="text-gray-700">{item.title}</span>
-                      {searchQuery && item.id === 'meetings' && isSearching && (
-                        <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
-                      )}
+                {filteredSidebarItems.filter(item => item.type === 'folder').map(item => {
+                  const isRealFolder = item.isRealFolder;
+                  const isExpanded = expandedFolders.has(item.id);
+                  const isRenamingThisFolder = renamingFolderId === item.id;
+                  const isDragOver = dragOverFolderId === item.id;
+                  return (
+                    <div key={item.id}>
+                      <div
+                        draggable={isRealFolder}
+                        onDragStart={isRealFolder ? (e) => handleItemDragStart(e, item) : undefined}
+                        onDragOver={(e) => { e.preventDefault(); setDragOverFolderId(item.id); }}
+                        onDragLeave={() => setDragOverFolderId(prev => prev === item.id ? null : prev)}
+                        onDrop={(e) => handleFolderDrop(e, item.id === 'meetings' ? null : item.id)}
+                        onClick={() => toggleFolder(item.id)}
+                        className={`group flex items-center transition-all duration-150 p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg cursor-pointer hover:bg-gray-50 ${isDragOver ? 'ring-2 ring-blue-400 bg-blue-50' : ''}`}
+                      >
+                        {item.id === 'meetings' ? (
+                          <NotebookPen className="w-4 h-4 mr-2 text-gray-600" />
+                        ) : item.icon ? (
+                          <span className="mr-2">{item.icon}</span>
+                        ) : (
+                          <FolderIcon className="w-4 h-4 mr-2 text-gray-500" />
+                        )}
+                        {isRenamingThisFolder ? (
+                          <input
+                            autoFocus
+                            value={renamingFolderName}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setRenamingFolderName(e.target.value)}
+                            onBlur={() => commitFolderRename(item.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitFolderRename(item.id);
+                              if (e.key === 'Escape') setRenamingFolderId(null);
+                            }}
+                            className="text-sm font-medium border border-gray-300 rounded px-1 py-0.5 flex-1 min-w-0"
+                          />
+                        ) : (
+                          <span className="text-gray-700 truncate">{item.title}</span>
+                        )}
+                        {isRealFolder && !isRenamingThisFolder && (
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ml-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRenamingFolderId(item.id);
+                                setRenamingFolderName(item.title);
+                              }}
+                              className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
+                              aria-label="Rename folder"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            {confirmDeleteFolderId === item.id ? (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteFolder(item.id); }}
+                                className="text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
+                                aria-label="Confirm delete folder"
+                                title="Click again to confirm"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteFolderId(item.id); }}
+                                className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
+                                aria-label="Delete folder"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        <div className="ml-auto flex-shrink-0">
+                          {isExpanded ? (
+                            <ChevronDown className="w-4 h-4 text-gray-500" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-gray-500" />
+                          )}
+                        </div>
+                        {searchQuery && item.id === 'meetings' && isSearching && (
+                          <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
+                        )}
+                      </div>
                     </div>
+                  );
+                })}
+
+                {/* New folder */}
+                {isCreatingFolder ? (
+                  <div className="flex items-center p-3 mx-3 mt-3 h-10 rounded-lg border border-dashed border-gray-300">
+                    <FolderIcon className="w-4 h-4 mr-2 text-gray-400" />
+                    <input
+                      autoFocus
+                      value={newFolderName}
+                      placeholder="Folder name"
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onBlur={handleCreateFolder}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCreateFolder();
+                        if (e.key === 'Escape') { setIsCreatingFolder(false); setNewFolderName(''); }
+                      }}
+                      className="text-sm flex-1 min-w-0 outline-none bg-transparent"
+                    />
                   </div>
-                ))}
+                ) : (
+                  <button
+                    onClick={() => setIsCreatingFolder(true)}
+                    className="flex items-center w-[calc(100%-24px)] p-3 mx-3 mt-3 h-10 rounded-lg text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                  >
+                    <FolderPlus className="w-4 h-4 mr-2" />
+                    New folder
+                  </button>
+                )}
               </div>
             )}
 

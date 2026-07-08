@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 export type ContextType = 'meeting' | 'lecture' | 'discussion' | 'coffee_chat' | 'custom';
 
 /** Context-type badge colors (PROJECT_BRIEF.md §8) */
-const CONTEXT_STYLES: Record<ContextType, { label: string; dot: string; chip: string }> = {
+export const CONTEXT_STYLES: Record<ContextType, { label: string; dot: string; chip: string }> = {
   meeting: { label: 'Meeting', dot: 'bg-blue-500', chip: 'bg-blue-50 text-blue-700 border-blue-200' },
   lecture: { label: 'Lecture', dot: 'bg-purple-500', chip: 'bg-purple-50 text-purple-700 border-purple-200' },
   discussion: { label: 'Discussion', dot: 'bg-emerald-500', chip: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -15,7 +15,7 @@ const CONTEXT_STYLES: Record<ContextType, { label: string; dot: string; chip: st
   custom: { label: 'Custom', dot: 'bg-gray-400', chip: 'bg-gray-50 text-gray-600 border-gray-200' },
 };
 
-const CONTEXT_ORDER: ContextType[] = ['meeting', 'lecture', 'discussion', 'coffee_chat', 'custom'];
+export const CONTEXT_ORDER: ContextType[] = ['meeting', 'lecture', 'discussion', 'coffee_chat', 'custom'];
 
 /**
  * Session-type badge + picker. The type is auto-suggested after

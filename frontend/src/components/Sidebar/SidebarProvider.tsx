@@ -12,11 +12,25 @@ interface SidebarItem {
   title: string;
   type: 'folder' | 'file';
   children?: SidebarItem[];
+  contextType?: string;
+  icon?: string | null;
+  /** True for folders backed by a real `folders` row (renamable/deletable/nestable) */
+  isRealFolder?: boolean;
 }
 
 export interface CurrentMeeting {
   id: string;
   title: string;
+  contextType?: string;
+  folderId?: string | null;
+}
+
+export interface OrgFolder {
+  id: string;
+  parent_folder_id: string | null;
+  name: string;
+  icon: string | null;
+  sort_order: number;
 }
 
 // Search result type for transcript search
@@ -51,7 +65,9 @@ interface SidebarContextType {
   stopSummaryPolling: (meetingId: string) => void;
   // Refetch meetings from backend
   refetchMeetings: () => Promise<void>;
-
+  // Personal organization (Phase 5)
+  folders: OrgFolder[];
+  refetchFolders: () => Promise<void>;
 }
 
 const SidebarContext = createContext<SidebarContextType | null>(null);
@@ -75,6 +91,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [serverAddress, setServerAddress] = useState('');
   const [transcriptServerAddress, setTranscriptServerAddress] = useState('');
   const [activeSummaryPolls, setActiveSummaryPolls] = useState<Map<string, NodeJS.Timeout>>(new Map());
+  const [folders, setFolders] = useState<OrgFolder[]>([]);
 
   // Use recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
@@ -86,10 +103,17 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const fetchMeetings = React.useCallback(async () => {
     if (serverAddress) {
       try {
-        const meetings = await invoke('api_get_meetings') as Array<{ id: string, title: string }>;
-        const transformedMeetings = meetings.map((meeting: any) => ({
+        const meetings = await invoke('api_get_meetings') as Array<{
+          id: string;
+          title: string;
+          context_type?: string;
+          folder_id?: string | null;
+        }>;
+        const transformedMeetings = meetings.map((meeting) => ({
           id: meeting.id,
-          title: meeting.title
+          title: meeting.title,
+          contextType: meeting.context_type,
+          folderId: meeting.folder_id ?? null,
         }));
         setMeetings(transformedMeetings);
         Analytics.trackBackendConnection(true);
@@ -101,9 +125,23 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     }
   }, [serverAddress]);
 
+  const fetchFolders = React.useCallback(async () => {
+    try {
+      const result = await invoke('api_list_folders') as OrgFolder[];
+      setFolders(result);
+    } catch (error) {
+      console.error('Error fetching folders:', error);
+      setFolders([]);
+    }
+  }, []);
+
   useEffect(() => {
     fetchMeetings();
   }, [serverAddress, fetchMeetings]);
+
+  useEffect(() => {
+    fetchFolders();
+  }, [fetchFolders]);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -113,13 +151,47 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     fetchSettings();
   }, []);
 
+  // Build the real folder tree (nested by parent_folder_id), each folder's
+  // children including its subfolders and the meetings assigned to it.
+  // Meetings with no folder_id fall into the existing 'meetings' bucket,
+  // keeping all of index.tsx's special-casing for that id (always expanded,
+  // search indicator, etc.) working unchanged.
+  const buildFolderNode = (folder: OrgFolder): SidebarItem => {
+    const subfolders = folders
+      .filter(f => f.parent_folder_id === folder.id)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map(buildFolderNode);
+    const folderMeetings = meetings
+      .filter(m => m.folderId === folder.id)
+      .map(meeting => ({
+        id: meeting.id,
+        title: meeting.title,
+        type: 'file' as const,
+        contextType: meeting.contextType,
+      }));
+    return {
+      id: folder.id,
+      title: folder.name,
+      type: 'folder' as const,
+      icon: folder.icon,
+      isRealFolder: true,
+      children: [...subfolders, ...folderMeetings],
+    };
+  };
+
   const baseItems: SidebarItem[] = [
+    ...folders
+      .filter(f => f.parent_folder_id === null)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map(buildFolderNode),
     {
       id: 'meetings',
       title: 'Meeting Notes',
       type: 'folder' as const,
       children: [
-        ...meetings.map(meeting => ({ id: meeting.id, title: meeting.title, type: 'file' as const }))
+        ...meetings
+          .filter(m => !m.folderId)
+          .map(meeting => ({ id: meeting.id, title: meeting.title, type: 'file' as const, contextType: meeting.contextType }))
       ]
     },
   ];
@@ -137,10 +209,10 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     setSidebarItems(baseItems);
   }, [pathname]);
 
-  // Update sidebar items when meetings change
+  // Update sidebar items when meetings or folders change
   useEffect(() => {
     setSidebarItems(baseItems);
-  }, [meetings]);
+  }, [meetings, folders]);
 
   // Function to handle recording toggle from sidebar
   const handleRecordingToggle = () => {
@@ -312,7 +384,8 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       startSummaryPolling,
       stopSummaryPolling,
       refetchMeetings: fetchMeetings,
-
+      folders,
+      refetchFolders: fetchFolders,
     }}>
       {children}
     </SidebarContext.Provider>

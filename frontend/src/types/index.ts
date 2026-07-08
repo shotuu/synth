@@ -93,6 +93,9 @@ export interface MeetingMetadata {
   created_at: string;
   updated_at: string;
   folder_path?: string;
+  context_type?: string;
+  folder_id?: string | null;
+  tags?: string | null;
 }
 
 export interface PaginatedTranscriptsResponse {
