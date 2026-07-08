@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
-import { Check, Circle, Folder as FolderIcon } from 'lucide-react';
+import { Check, Circle, Folder as FolderIcon, ListTodo, PartyPopper } from 'lucide-react';
+import { EmptyState } from '@/components/EmptyState';
 import { CONTEXT_STYLES, ContextType } from '@/components/MeetingDetails/ContextTypeSelector';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 
@@ -109,9 +110,19 @@ export default function ActionItemsPage() {
       {isLoading ? (
         <div className="text-sm text-gray-400">Loading…</div>
       ) : grouped.length === 0 ? (
-        <div className="text-sm text-gray-400 py-12 text-center">
-          {showDone ? 'No action items yet.' : 'Nothing open — nice work.'}
-        </div>
+        showDone ? (
+          <EmptyState
+            icon={ListTodo}
+            title="No action items yet"
+            description="Once a generated summary includes action items, they'll show up here across every session."
+          />
+        ) : (
+          <EmptyState
+            icon={PartyPopper}
+            title="Nothing open — nice work"
+            description="Every action item across your sessions is checked off."
+          />
+        )
       ) : (
         <div className="space-y-6">
           {grouped.map(([meetingId, group]) => {

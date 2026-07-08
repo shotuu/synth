@@ -19,14 +19,49 @@ pub fn set_bundled_templates_dir(path: PathBuf) {
 /// Get the user's custom templates directory path
 ///
 /// Returns the platform-specific application data directory for custom templates:
-/// - macOS: ~/Library/Application Support/Meetily/templates/
-/// - Windows: %APPDATA%\Meetily\templates\
-/// - Linux: ~/.config/Meetily/templates/
-fn get_custom_templates_dir() -> Option<PathBuf> {
+/// - macOS: ~/Library/Application Support/Synth/templates/
+/// - Windows: %APPDATA%\Synth\templates\
+/// - Linux: ~/.config/Synth/templates/
+pub fn get_custom_templates_dir() -> Option<PathBuf> {
     let mut path = dirs::data_dir()?;
-    path.push("Meetily");
+    path.push("Synth");
     path.push("templates");
     Some(path)
+}
+
+/// Save a custom template's JSON to the user's custom templates directory,
+/// validating it first so a malformed template never lands on disk. The
+/// filename doubles as the template's id in list_template_ids/get_template.
+pub fn save_custom_template(id: &str, json_content: &str) -> Result<(), String> {
+    if id.trim().is_empty() || id.contains(['/', '\\', '.']) {
+        return Err("Template id must be non-empty and contain no path separators".to_string());
+    }
+    validate_and_parse_template(json_content)?;
+
+    let dir = get_custom_templates_dir()
+        .ok_or_else(|| "Could not resolve custom templates directory".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create templates directory: {}", e))?;
+
+    let path = dir.join(format!("{}.json", id));
+    std::fs::write(&path, json_content).map_err(|e| format!("Failed to write template: {}", e))?;
+    info!("Saved custom template '{}' to {:?}", id, path);
+    Ok(())
+}
+
+/// Delete a custom template. Built-in templates can't be deleted this way
+/// since they aren't in this directory -- deleting a nonexistent file is
+/// reported as "not found" rather than silently succeeding.
+pub fn delete_custom_template(id: &str) -> Result<bool, String> {
+    let dir = get_custom_templates_dir()
+        .ok_or_else(|| "Could not resolve custom templates directory".to_string())?;
+    let path = dir.join(format!("{}.json", id));
+
+    if !path.exists() {
+        return Ok(false);
+    }
+    std::fs::remove_file(&path).map_err(|e| format!("Failed to delete template: {}", e))?;
+    info!("Deleted custom template '{}'", id);
+    Ok(true)
 }
 
 /// Load a template from the bundled resources directory
@@ -220,6 +255,55 @@ pub fn list_templates() -> Vec<(String, String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Touches the real custom templates directory (it isn't mockable in
+    /// this design), so a unique id and explicit cleanup on both ends keep
+    /// this test from leaving litter or colliding with a parallel test run.
+    #[test]
+    fn save_get_and_delete_custom_template_round_trip() {
+        let id = "synth_test_template_save_get_delete";
+        let _ = delete_custom_template(id); // defensive: clear any leftover from a prior failed run
+
+        let json = r#"{
+            "name": "My Custom Template",
+            "description": "A test template",
+            "sections": [
+                {"title": "Summary", "instruction": "Summarize it", "format": "paragraph"}
+            ]
+        }"#;
+
+        save_custom_template(id, json).expect("save should succeed for valid JSON");
+
+        let loaded = get_template(id).expect("should load the just-saved template");
+        assert_eq!(loaded.name, "My Custom Template");
+        assert_eq!(loaded.sections.len(), 1);
+
+        assert!(list_template_ids().contains(&id.to_string()));
+
+        let deleted = delete_custom_template(id).expect("delete should succeed");
+        assert!(deleted);
+        assert!(get_template(id).is_err(), "template should be gone after delete");
+
+        let deleted_again = delete_custom_template(id).expect("deleting a missing template is not an error");
+        assert!(!deleted_again, "second delete should report nothing was there");
+    }
+
+    #[test]
+    fn save_custom_template_rejects_invalid_json() {
+        let id = "synth_test_template_invalid";
+        let result = save_custom_template(id, "not valid json");
+        assert!(result.is_err());
+        // Must not have written anything for a template that failed validation
+        assert!(get_template(id).is_err());
+    }
+
+    #[test]
+    fn save_custom_template_rejects_path_traversal_ids() {
+        let json = r#"{"name":"x","description":"y","sections":[{"title":"S","instruction":"i","format":"paragraph"}]}"#;
+        assert!(save_custom_template("../evil", json).is_err());
+        assert!(save_custom_template("nested/path", json).is_err());
+        assert!(save_custom_template("", json).is_err());
+    }
 
     #[test]
     fn test_get_builtin_template() {

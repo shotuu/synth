@@ -7,6 +7,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Search, Folder as FolderIcon, Tag as TagIcon, X } from 'lucide-react';
 import { CONTEXT_STYLES, CONTEXT_ORDER, ContextType } from '@/components/MeetingDetails/ContextTypeSelector';
 import { useSidebar, OrgFolder } from '@/components/Sidebar/SidebarProvider';
+import { EmptyState } from '@/components/EmptyState';
 
 interface SessionRow {
   id: string;
@@ -162,9 +163,27 @@ function SessionsPageInner() {
       {isLoading ? (
         <div className="text-sm text-gray-400">Loading sessions…</div>
       ) : filtered.length === 0 ? (
-        <div className="text-sm text-gray-400 py-12 text-center">
-          {sessions.length === 0 ? 'No sessions yet.' : 'No sessions match these filters.'}
-        </div>
+        sessions.length === 0 ? (
+          <EmptyState
+            icon={FolderIcon}
+            title="No sessions yet"
+            description="Record a meeting, lecture, or chat and it'll show up here — organized by folder, type, and tag."
+          />
+        ) : (
+          <EmptyState
+            icon={Search}
+            title="No sessions match these filters"
+            description="Try clearing a filter or searching for something else."
+            action={
+              <button
+                onClick={() => { setQuery(''); setContextFilter('all'); setFolderFilter('all'); setTagFilter(null); }}
+                className="text-xs font-medium text-blue-600 hover:text-blue-700"
+              >
+                Clear filters
+              </button>
+            }
+          />
+        )
       ) : (
         <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
           {filtered.map((session) => {

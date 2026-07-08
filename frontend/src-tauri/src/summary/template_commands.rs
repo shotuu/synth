@@ -1,4 +1,5 @@
 use crate::summary::templates;
+use crate::summary::templates::Template;
 use serde::{Deserialize, Serialize};
 use tauri::Runtime;
 use tracing::{info, warn};
@@ -121,6 +122,40 @@ pub async fn api_validate_template<R: Runtime>(
             Err(e)
         }
     }
+}
+
+/// Full template structure for the editor UI (name/description/sections
+/// with their instructions and formats -- unlike TemplateDetails, which
+/// only exposes section titles for lightweight preview use).
+#[tauri::command]
+pub async fn api_get_template_for_edit<R: Runtime>(
+    _app: tauri::AppHandle<R>,
+    template_id: String,
+) -> Result<Template, String> {
+    templates::get_template(&template_id)
+}
+
+/// Save a custom template (create or overwrite) to the user's custom
+/// templates directory. `template_id` becomes the id used everywhere else
+/// (selection dropdown, get_template, etc.) -- pass the same id as an
+/// existing built-in to override it for this user, or a new id to add one.
+#[tauri::command]
+pub async fn api_save_custom_template<R: Runtime>(
+    _app: tauri::AppHandle<R>,
+    template_id: String,
+    template_json: String,
+) -> Result<(), String> {
+    info!("api_save_custom_template called for id: {}", template_id);
+    templates::save_custom_template(&template_id, &template_json)
+}
+
+#[tauri::command]
+pub async fn api_delete_custom_template<R: Runtime>(
+    _app: tauri::AppHandle<R>,
+    template_id: String,
+) -> Result<bool, String> {
+    info!("api_delete_custom_template called for id: {}", template_id);
+    templates::delete_custom_template(&template_id)
 }
 
 #[cfg(test)]

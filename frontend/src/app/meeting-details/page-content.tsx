@@ -12,6 +12,7 @@ import { SourcesPanel } from '@/components/MeetingDetails/SourcesPanel';
 import { ContextTypeSelector } from '@/components/MeetingDetails/ContextTypeSelector';
 import { SpeakerControls } from '@/components/MeetingDetails/SpeakerControls';
 import { SessionOrganizer } from '@/components/MeetingDetails/SessionOrganizer';
+import { TemplateEditorDialog } from '@/components/MeetingDetails/TemplateEditorDialog';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 
 // Custom hooks
@@ -186,7 +187,8 @@ export default function PageContent({
               meetingId={meeting.id}
               onTranscriptChanged={onRefetchTranscripts}
             />
-            <div className="ml-auto shrink-0">
+            <div className="ml-auto shrink-0 flex items-center gap-1.5">
+              <TemplateEditorDialog onTemplatesChanged={templates.refetchTemplates} />
               <SessionOrganizer meetingId={meeting.id} folderId={meeting.folder_id} />
             </div>
           </div>

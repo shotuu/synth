@@ -7,6 +7,8 @@ pub mod action_items;
 pub mod compress;
 pub mod export;
 pub mod export_commands;
+pub mod export_docx;
+pub mod export_pdf;
 pub mod folder_commands;
 pub mod storage;
 pub mod storage_commands;

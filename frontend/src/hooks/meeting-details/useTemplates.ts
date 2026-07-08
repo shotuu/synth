@@ -11,23 +11,24 @@ export function useTemplates() {
   }>>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('standard_meeting');
 
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const templates = await invokeTauri('api_list_templates') as Array<{
+        id: string;
+        name: string;
+        description: string;
+      }>;
+      console.log('Available templates:', templates);
+      setAvailableTemplates(templates);
+    } catch (error) {
+      console.error('Failed to fetch templates:', error);
+    }
+  }, []);
+
   // Fetch available templates on mount
   useEffect(() => {
-    const fetchTemplates = async () => {
-      try {
-        const templates = await invokeTauri('api_list_templates') as Array<{
-          id: string;
-          name: string;
-          description: string;
-        }>;
-        console.log('Available templates:', templates);
-        setAvailableTemplates(templates);
-      } catch (error) {
-        console.error('Failed to fetch templates:', error);
-      }
-    };
     fetchTemplates();
-  }, []);
+  }, [fetchTemplates]);
 
   // True once the user has explicitly picked a template; context-type
   // defaulting must never override an explicit choice
@@ -59,6 +60,7 @@ export function useTemplates() {
     selectedTemplate,
     handleTemplateSelection,
     applyContextTypeDefault,
+    refetchTemplates: fetchTemplates,
   };
 }
 

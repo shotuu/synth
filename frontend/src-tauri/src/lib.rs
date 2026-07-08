@@ -556,6 +556,8 @@ pub fn run() {
             organization::action_item_commands::api_list_action_items,
             organization::action_item_commands::api_toggle_action_item,
             organization::export_commands::api_export_session_html,
+            organization::export_commands::api_export_session_pdf,
+            organization::export_commands::api_export_session_docx,
             organization::storage_commands::api_get_storage_stats,
             organization::storage_commands::api_list_session_audio,
             organization::storage_commands::api_suggested_cleanup,
@@ -709,6 +711,9 @@ pub fn run() {
             summary::template_commands::api_list_templates,
             summary::template_commands::api_get_template_details,
             summary::template_commands::api_validate_template,
+            summary::template_commands::api_get_template_for_edit,
+            summary::template_commands::api_save_custom_template,
+            summary::template_commands::api_delete_custom_template,
             // Built-in AI commands
             summary::summary_engine::commands::builtin_ai_list_models,
             summary::summary_engine::commands::builtin_ai_get_model_info,
