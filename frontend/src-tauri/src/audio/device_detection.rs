@@ -440,9 +440,12 @@ mod tests {
 
     #[test]
     fn test_builtin_mic_detection() {
-        let kind = InputDeviceKind::detect("MacBook Pro Microphone", 0, 0);
-        // Should fall through to Unknown (no Bluetooth pattern, no buffer size)
-        assert_eq!(kind, InputDeviceKind::Unknown);
+        // detect() consults real Core Audio hardware on macOS (Layer 1), so a
+        // machine with an actual "MacBook Pro Microphone" would resolve it as
+        // Wired via its transport type. Exercise the heuristic layers directly:
+        // no Bluetooth name pattern and no buffer size means fall through.
+        assert_eq!(InputDeviceKind::detect_by_name("MacBook Pro Microphone"), None);
+        assert_eq!(InputDeviceKind::detect_by_buffer_size(0, 0), None);
     }
 
     #[test]
@@ -483,7 +486,10 @@ mod tests {
             3840,
             48000,
         );
-        assert_eq!(timeout, Duration::from_millis(160));
+        // mul_f32 headroom loses sub-nanosecond precision (159.999996ms), so
+        // assert the clamped range rather than exact equality.
+        assert!(timeout >= Duration::from_millis(159));
+        assert!(timeout <= Duration::from_millis(161));
     }
 
     #[test]
