@@ -464,6 +464,8 @@ impl SummaryService {
         };
         let template_fingerprint = template_cache_fingerprint(&template);
 
+        let _ = SummaryProcessesRepository::update_process_stage(&pool, &meeting_id, "preparing").await;
+
         // Fold in the session's other sources (attachments, user notes) from
         // the Phase 2 context assembler. Done before cache fingerprinting so
         // adding or removing a source correctly invalidates the cache.
@@ -531,6 +533,14 @@ impl SummaryService {
                 }
             }),
         };
+
+        // Skip the "generating" stage announcement when the cache will short-
+        // circuit the call below (extract_cached_english_markdown found a
+        // reusable result) — cheap check, avoids a misleading flash of
+        // "generating" for what's actually an instant cache hit.
+        if cached_english.is_none() {
+            let _ = SummaryProcessesRepository::update_process_stage(&pool, &meeting_id, "generating").await;
+        }
 
         let client = reqwest::Client::new();
         let result = generate_meeting_summary(

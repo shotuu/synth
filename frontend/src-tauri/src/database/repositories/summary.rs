@@ -82,6 +82,28 @@ impl SummaryProcessesRepository {
         .await
     }
 
+    /// Records a coarse progress stage while generation is in flight (the
+    /// `metadata` column is otherwise unused by this table — distinct from
+    /// the on-disk metadata.json used for summary-language preferences).
+    /// No per-token percentage is available: local generation runs through
+    /// a plain request/response IPC to the llama.cpp sidecar with no
+    /// streaming hook, and cloud providers don't expose one uniformly
+    /// either — a stage name is the honest granularity available.
+    pub async fn update_process_stage(
+        pool: &SqlitePool,
+        meeting_id: &str,
+        stage: &str,
+    ) -> Result<(), sqlx::Error> {
+        let metadata = serde_json::json!({ "stage": stage }).to_string();
+        sqlx::query("UPDATE summary_processes SET metadata = ?, updated_at = ? WHERE meeting_id = ?")
+            .bind(metadata)
+            .bind(Utc::now())
+            .bind(meeting_id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn create_or_reset_process(
         pool: &SqlitePool,
         meeting_id: &str,

@@ -79,6 +79,18 @@
   animation: accent-pulse 2s ease-in-out infinite;
 }
 
+/* Indeterminate progress shimmer (ProgressBar component) — for phases with
+   no meaningful percentage, e.g. summary generation has no token count. */
+@keyframes progress-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(300%);
+  }
+}
+
 .delay-75 {
   animation-delay: 75ms;
 }

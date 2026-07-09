@@ -26,6 +26,11 @@ pub struct SummaryResponse {
     pub end: Option<String>,
     pub data: Option<serde_json::Value>,
     pub error: Option<String>,
+    /// Coarse progress stage while status is processing/summarizing (see
+    /// SummaryProcessesRepository::update_process_stage) — "preparing" or
+    /// "generating". No per-token percentage is available across providers,
+    /// so the frontend shows an indeterminate bar rather than a fake number.
+    pub stage: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -274,6 +279,12 @@ pub async fn api_get_summary<R: Runtime>(
                 }
             };
 
+            let stage = process.metadata.as_deref().and_then(|raw| {
+                serde_json::from_str::<serde_json::Value>(raw)
+                    .ok()
+                    .and_then(|v| v.get("stage").and_then(|s| s.as_str()).map(str::to_string))
+            });
+
             let response = SummaryResponse {
                 status: status.clone(),
                 meeting_name,
@@ -282,6 +293,7 @@ pub async fn api_get_summary<R: Runtime>(
                 end: process.end_time.map(|t| t.to_rfc3339()),
                 data,
                 error,
+                stage,
             };
 
             log_info!(
@@ -310,6 +322,7 @@ pub async fn api_get_summary<R: Runtime>(
                 end: None,
                 data: None,
                 error: None,
+                stage: None,
             })
         }
         Err(e) => {

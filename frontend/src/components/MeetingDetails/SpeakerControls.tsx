@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
-import { Loader2, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { speakerColor } from '@/lib/speaker-colors';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { ProgressBar } from '@/components/ui/progress-bar';
 
 interface SpeakerInfo {
   label: string;
@@ -105,9 +106,12 @@ export function SpeakerControls({
 
   if (progress) {
     return (
-      <div className="flex items-center gap-2 text-xs text-gray-500">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        {STAGE_LABELS[progress.stage] ?? 'Working…'} {progress.progress > 0 && `${progress.progress}%`}
+      <div className="flex items-center gap-2 text-xs text-gray-500 min-w-[11rem]">
+        <span className="shrink-0 whitespace-nowrap">
+          {STAGE_LABELS[progress.stage] ?? 'Working…'}
+        </span>
+        <ProgressBar percent={progress.progress} className="w-20 shrink-0" />
+        <span className="shrink-0 font-mono tabular-nums">{progress.progress}%</span>
       </div>
     );
   }

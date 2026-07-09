@@ -12,6 +12,7 @@ import { useEffect, useRef, useState, RefObject } from 'react';
 import { toast } from 'sonner';
 import { Languages, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ProgressBar } from '@/components/ui/progress-bar';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { LanguagePickerPopover } from '@/components/LanguagePickerPopover';
 import { useRecentLanguages } from '@/hooks/useRecentLanguages';
@@ -41,6 +42,8 @@ interface SummaryPanelProps {
   onOpenFolder: () => Promise<void>;
   aiSummary: Summary | null;
   summaryStatus: 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
+  /** Coarse stage while processing/summarizing/regenerating ("preparing" | "generating") — no per-token percentage is available, so this drives an indeterminate bar rather than a fake number. */
+  summaryStage?: string | null;
   transcripts: Transcript[];
   modelConfig: ModelConfig;
   setModelConfig: (config: ModelConfig | ((prev: ModelConfig) => ModelConfig)) => void;
@@ -77,6 +80,7 @@ export function SummaryPanel({
   onOpenFolder,
   aiSummary,
   summaryStatus,
+  summaryStage,
   transcripts,
   modelConfig,
   setModelConfig,
@@ -337,11 +341,21 @@ export function SummaryPanel({
               onOpenModelSettings={onOpenModelSettings}
             />
           </div>
-          {/* Loading spinner */}
+          {/* Loading state: stage label + indeterminate bar. No per-token
+              percentage is available across providers (local generation is
+              a plain request/response IPC with no streaming hook), so this
+              is honest about "still working" rather than faking a number. */}
           <div className="flex items-center justify-center flex-1">
-            <div className="text-center">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-              <p className="text-gray-600">Generating AI Summary...</p>
+            <div className="text-center w-56">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+              <p className="text-gray-600 mb-3">
+                {summaryStage === 'preparing'
+                  ? 'Preparing context…'
+                  : summaryStage === 'generating'
+                    ? 'Generating summary…'
+                    : 'Generating AI Summary...'}
+              </p>
+              <ProgressBar indeterminate />
             </div>
           </div>
         </div>

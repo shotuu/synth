@@ -75,6 +75,10 @@ export function useSummaryGeneration({
 }: UseSummaryGenerationProps) {
   const [summaryStatus, setSummaryStatus] = useState<SummaryStatus>('idle');
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  // Coarse stage ("preparing" | "generating") while processing/summarizing —
+  // no per-token percentage is available across providers, so the UI shows
+  // an indeterminate bar rather than a fabricated number.
+  const [summaryStage, setSummaryStage] = useState<string | null>(null);
 
   const { startSummaryPolling, stopSummaryPolling } = useSidebar();
 
@@ -165,10 +169,12 @@ export function useSummaryGeneration({
       // Start global polling via context
       startSummaryPolling(meeting.id, process_id, async (pollingResult) => {
         console.log('Summary status:', pollingResult);
+        setSummaryStage(pollingResult.stage ?? null);
 
         // Handle cancellation
         if (pollingResult.status === 'cancelled') {
           console.log('Summary generation was cancelled');
+          setSummaryStage(null);
 
           // Reload summary from database (backend has already restored from backup)
           try {
@@ -194,6 +200,7 @@ export function useSummaryGeneration({
 
         // Handle errors
         if (pollingResult.status === 'error' || pollingResult.status === 'failed') {
+          setSummaryStage(null);
           console.error('Backend returned error:', pollingResult.error);
           const errorMessage = pollingResult.error || `Summary ${isRegeneration ? 'regeneration' : 'generation'} failed`;
 
@@ -263,6 +270,7 @@ export function useSummaryGeneration({
 
         // Handle successful completion
         if (pollingResult.status === 'completed' && pollingResult.data) {
+          setSummaryStage(null);
           console.log('Summary generation completed:', pollingResult.data);
 
           // Update meeting title if available
@@ -663,6 +671,7 @@ export function useSummaryGeneration({
 
   return {
     summaryStatus,
+    summaryStage,
     summaryError,
     handleGenerateSummary,
     handleRegenerateSummary,
