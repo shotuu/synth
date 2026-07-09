@@ -7,6 +7,7 @@ import { Check, Circle, Folder as FolderIcon, ListTodo, PartyPopper } from 'luci
 import { EmptyState } from '@/components/EmptyState';
 import { CONTEXT_STYLES, ContextType } from '@/components/MeetingDetails/ContextTypeSelector';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
+import { SimpleSelect } from '@/components/ui/simple-select';
 
 interface ActionItem {
   id: string;
@@ -91,16 +92,15 @@ export default function ActionItemsPage() {
       <p className="text-gray-500 text-sm mb-6">Every open todo, across every session</p>
 
       <div className="flex flex-wrap items-center gap-2 mb-6">
-        <select
+        <SimpleSelect
           value={folderFilter}
-          onChange={(e) => setFolderFilter(e.target.value)}
-          className="text-sm border border-gray-200 rounded-md px-2 py-1.5 bg-white"
-        >
-          <option value="all">All folders</option>
-          {folders.map((f) => (
-            <option key={f.id} value={f.id}>{f.icon ? `${f.icon} ` : ''}{f.name}</option>
-          ))}
-        </select>
+          onValueChange={setFolderFilter}
+          options={[
+            { value: 'all', label: 'All folders' },
+            ...folders.map((f) => ({ value: f.id, label: `${f.icon ? `${f.icon} ` : ''}${f.name}` })),
+          ]}
+          className="w-auto text-sm border-gray-200 rounded-md px-2 py-1.5 bg-white h-auto"
+        />
         <label className="flex items-center gap-1.5 text-sm text-gray-600 px-2">
           <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
           Show completed

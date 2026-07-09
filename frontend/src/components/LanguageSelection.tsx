@@ -3,6 +3,7 @@ import { Globe } from 'lucide-react';
 import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
 import { useConfig } from '@/contexts/ConfigContext';
+import { SimpleSelect } from '@/components/ui/simple-select';
 
 export interface Language {
   code: string;
@@ -183,19 +184,18 @@ export function LanguageSelection({
       </div>
 
       <div className="space-y-2">
-        <select
+        <SimpleSelect
           value={selectedLanguage}
-          onChange={(e) => handleLanguageChange(e.target.value)}
+          onValueChange={handleLanguageChange}
           disabled={disabled || saving}
-          className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
-        >
-          {availableLanguages.map((language) => (
-            <option key={language.code} value={language.code}>
-              {language.name}
-              {language.code !== 'auto' && language.code !== 'auto-translate' && ` (${language.code})`}
-            </option>
-          ))}
-        </select>
+          options={availableLanguages.map((language) => ({
+            value: language.code,
+            label:
+              language.name +
+              (language.code !== 'auto' && language.code !== 'auto-translate' ? ` (${language.code})` : ''),
+          }))}
+          className="w-full px-3 py-2 text-sm bg-white border-gray-300 rounded-md shadow-sm"
+        />
 
         {/* Parakeet language limitation warning */}
         {isParakeet && (

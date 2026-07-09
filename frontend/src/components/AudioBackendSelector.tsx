@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Info } from 'lucide-react';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 export interface BackendInfo {
   id: string;
@@ -23,7 +24,6 @@ export function AudioBackendSelector({
   const [currentBackend, setCurrentBackend] = useState<string>('coreaudio');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showTooltip, setShowTooltip] = useState(false);
 
   // Load available backends and current selection
   useEffect(() => {
@@ -94,31 +94,26 @@ export function AudioBackendSelector({
         <label className="text-sm font-medium text-gray-700">
           System Audio Backend
         </label>
-        <div className="relative">
-          <button
-            type="button"
-            onMouseEnter={() => setShowTooltip(true)}
-            onMouseLeave={() => setShowTooltip(false)}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <Info className="h-4 w-4" />
-          </button>
-          {showTooltip && (
-            <div className="absolute z-10 left-6 top-0 w-64 p-3 text-xs bg-gray-900 text-gray-50 rounded-lg shadow-lg">
-              <p className="font-semibold mb-1">Audio Capture Methods:</p>
-              <ul className="space-y-1">
-                {backends.map((backend) => (
-                  <li key={backend.id}>
-                    <span className="font-medium">{backend.name}:</span> {backend.description}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-gray-300">
-                Try different backends to find which works best for your system.
-              </p>
-            </div>
-          )}
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" className="text-gray-400 hover:text-gray-600 transition-colors">
+              <Info className="h-4 w-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" className="w-64 p-3 text-xs">
+            <p className="font-semibold mb-1">Audio Capture Methods:</p>
+            <ul className="space-y-1">
+              {backends.map((backend) => (
+                <li key={backend.id}>
+                  <span className="font-medium">{backend.name}:</span> {backend.description}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 opacity-70">
+              Try different backends to find which works best for your system.
+            </p>
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {error && (

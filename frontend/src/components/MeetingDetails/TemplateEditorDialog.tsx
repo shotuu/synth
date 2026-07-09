@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { VisuallyHidden } from '@/components/ui/visually-hidden';
+import { SimpleSelect } from '@/components/ui/simple-select';
 
 interface TemplateSummary {
   id: string;
@@ -267,15 +268,16 @@ export function TemplateEditorDialog({ onTemplatesChanged }: { onTemplatesChange
                       placeholder="Section title (e.g. Action Items)"
                       className="px-2 py-1 text-xs border border-gray-200 rounded"
                     />
-                    <select
+                    <SimpleSelect
                       value={section.format}
-                      onChange={(e) => updateSection(i, { format: e.target.value as TemplateSection['format'] })}
-                      className="px-2 py-1 text-xs border border-gray-200 rounded bg-white"
-                    >
-                      <option value="paragraph">Paragraph</option>
-                      <option value="list">List</option>
-                      <option value="string">Short string</option>
-                    </select>
+                      onValueChange={(v) => updateSection(i, { format: v as TemplateSection['format'] })}
+                      options={[
+                        { value: 'paragraph', label: 'Paragraph' },
+                        { value: 'list', label: 'List' },
+                        { value: 'string', label: 'Short string' },
+                      ]}
+                      className="px-2 py-1 text-xs border-gray-200 rounded bg-white h-auto"
+                    />
                   </div>
                   <textarea
                     value={section.instruction}

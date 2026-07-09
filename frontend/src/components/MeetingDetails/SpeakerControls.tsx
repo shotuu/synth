@@ -6,6 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { Loader2, Users } from 'lucide-react';
 import { speakerColor } from '@/lib/speaker-colors';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 
 interface SpeakerInfo {
   label: string;
@@ -128,32 +129,58 @@ export function SpeakerControls({
     <div className="flex items-center gap-1.5 flex-wrap min-w-0">
       {speakers.map((s) => {
         const color = speakerColor(s.label);
-        return renaming === s.label ? (
-          <input
+        return (
+          <Popover
             key={s.label}
-            autoFocus
-            defaultValue={s.label}
-            onChange={(e) => setRenameValue(e.target.value)}
-            onBlur={() => commitRename(s.label)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitRename(s.label);
-              if (e.key === 'Escape') setRenaming(null);
+            open={renaming === s.label}
+            onOpenChange={(open) => {
+              if (open) {
+                setRenameValue(s.label);
+                setRenaming(s.label);
+              } else {
+                setRenaming(null);
+              }
             }}
-            className="px-1.5 py-0.5 text-[11px] border border-gray-300 rounded w-24 focus:outline-none focus:ring-1 focus:ring-blue-400"
-          />
-        ) : (
-          <button
-            key={s.label}
-            onClick={() => {
-              setRenameValue(s.label);
-              setRenaming(s.label);
-            }}
-            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${color.chip} hover:opacity-80`}
-            title={`${s.segment_count} segments — click to rename`}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${color.dot}`} />
-            {s.label}
-          </button>
+            <PopoverTrigger asChild>
+              <button
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${color.chip} hover:opacity-80`}
+                title={`${s.segment_count} segments — click to rename`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${color.dot}`} />
+                {s.label}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-56 p-2">
+              <div className="text-[11px] text-gray-500 mb-1.5">
+                Rename speaker · {s.segment_count} segments
+              </div>
+              <input
+                autoFocus
+                defaultValue={s.label}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitRename(s.label);
+                  if (e.key === 'Escape') setRenaming(null);
+                }}
+                className="w-full px-2 py-1 text-xs border border-gray-300 rounded bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+              <div className="flex justify-end gap-1.5 mt-2">
+                <button
+                  onClick={() => setRenaming(null)}
+                  className="px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700 rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => commitRename(s.label)}
+                  className="px-2 py-1 text-[11px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Save
+                </button>
+              </div>
+            </PopoverContent>
+          </Popover>
         );
       })}
       <button

@@ -4,6 +4,7 @@ import { DeviceSelection } from "@/components/DeviceSelection";
 import { LanguageSelection } from "@/components/LanguageSelection";
 import { TranscriptSettings } from "@/components/TranscriptSettings";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { SimpleSelect } from "@/components/ui/simple-select";
 import { toast } from "sonner";
 import { useConfig } from "@/contexts/ConfigContext";
 import { useRecordingState } from "@/contexts/RecordingStateContext";
@@ -91,37 +92,33 @@ export function SettingsModals({
                     Summarization Model
                   </label>
                   <div className="flex space-x-2">
-                    <select
-                      className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    <SimpleSelect
                       value={modelConfig.provider}
-                      onChange={(e) => {
-                        const provider = e.target.value as ModelConfig['provider'];
+                      onValueChange={(v) => {
+                        const provider = v as ModelConfig['provider'];
                         setModelConfig({
                           ...modelConfig,
                           provider,
                           model: modelOptions[provider][0]
                         });
                       }}
-                    >
-                      <option value="builtin-ai">Built-in AI</option>
-                      <option value="claude">Claude</option>
-                      <option value="groq">Groq</option>
-                      <option value="ollama">Ollama</option>
-                      <option value="openrouter">OpenRouter</option>
-                      <option value="openai">OpenAI</option>
-                    </select>
+                      options={[
+                        { value: 'builtin-ai', label: 'Built-in AI' },
+                        { value: 'claude', label: 'Claude' },
+                        { value: 'groq', label: 'Groq' },
+                        { value: 'ollama', label: 'Ollama' },
+                        { value: 'openrouter', label: 'OpenRouter' },
+                        { value: 'openai', label: 'OpenAI' },
+                      ]}
+                      className="w-auto px-3 py-2 text-sm bg-white border-gray-300 rounded-md shadow-sm"
+                    />
 
-                    <select
-                      className="flex-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    <SimpleSelect
                       value={modelConfig.model}
-                      onChange={(e) => setModelConfig((prev: ModelConfig) => ({ ...prev, model: e.target.value }))}
-                    >
-                      {modelOptions[modelConfig.provider].map((model: string) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
+                      onValueChange={(v) => setModelConfig((prev: ModelConfig) => ({ ...prev, model: v }))}
+                      options={modelOptions[modelConfig.provider].map((model: string) => ({ value: model, label: model }))}
+                      className="flex-1 px-3 py-2 text-sm bg-white border-gray-300 rounded-md shadow-sm"
+                    />
                   </div>
                 </div>
                 {modelConfig.provider === 'ollama' && (

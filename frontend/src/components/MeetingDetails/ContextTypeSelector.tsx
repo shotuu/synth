@@ -3,6 +3,12 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 
 export type ContextType = 'meeting' | 'lecture' | 'discussion' | 'coffee_chat' | 'custom';
 
@@ -30,7 +36,6 @@ export function ContextTypeSelector({
   onContextChange?: (contextType: ContextType) => void;
 }) {
   const [contextType, setContextType] = useState<ContextType | null>(null);
-  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +57,6 @@ export function ContextTypeSelector({
   }, [meetingId]);
 
   const select = async (next: ContextType) => {
-    setIsOpen(false);
     if (next === contextType) return;
     const previous = contextType;
     setContextType(next);
@@ -72,38 +76,31 @@ export function ContextTypeSelector({
   const current = CONTEXT_STYLES[contextType];
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setIsOpen((v) => !v)}
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${current.chip}`}
-        title="Session type — drives the summary structure"
-      >
-        <span className={`w-1.5 h-1.5 rounded-full ${current.dot}`} />
-        {current.label}
-        <svg className="w-3 h-3 opacity-60" viewBox="0 0 12 12" fill="none">
-          <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </button>
-
-      {isOpen && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-          <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[150px]">
-            {CONTEXT_ORDER.map((ct) => (
-              <button
-                key={ct}
-                onClick={() => select(ct)}
-                className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-50 ${
-                  ct === contextType ? 'font-semibold text-gray-900' : 'text-gray-600'
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${CONTEXT_STYLES[ct].dot}`} />
-                {CONTEXT_STYLES[ct].label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${current.chip}`}
+          title="Session type — drives the summary structure"
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${current.dot}`} />
+          {current.label}
+          <svg className="w-3 h-3 opacity-60" viewBox="0 0 12 12" fill="none">
+            <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-[150px]">
+        {CONTEXT_ORDER.map((ct) => (
+          <DropdownMenuItem
+            key={ct}
+            onSelect={() => select(ct)}
+            className={`gap-2 text-xs ${ct === contextType ? 'font-semibold' : ''}`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${CONTEXT_STYLES[ct].dot}`} />
+            {CONTEXT_STYLES[ct].label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

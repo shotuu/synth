@@ -5,6 +5,22 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { Folder as FolderIcon, Download, Loader2, ChevronDown } from 'lucide-react';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
+
+/** Sentinel for "not in any folder" — Radix Select items can't have value="". */
+const NO_FOLDER = '__none__';
 
 /**
  * Folder assignment + static-page export for the current session. Folder
@@ -17,14 +33,13 @@ export function SessionOrganizer({ meetingId, folderId }: { meetingId: string; f
   const { folders, refetchMeetings } = useSidebar();
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(folderId ?? null);
   const [isExporting, setIsExporting] = useState(false);
-  const [showExportMenu, setShowExportMenu] = useState(false);
 
   useEffect(() => {
     setCurrentFolderId(folderId ?? null);
   }, [folderId, meetingId]);
 
   const handleFolderChange = async (newFolderId: string) => {
-    const resolved = newFolderId === '' ? null : newFolderId;
+    const resolved = newFolderId === NO_FOLDER ? null : newFolderId;
     setCurrentFolderId(resolved);
     try {
       await invoke('api_set_meeting_folder', { meetingId, folderId: resolved });
@@ -42,7 +57,6 @@ export function SessionOrganizer({ meetingId, folderId }: { meetingId: string; f
   };
 
   const handleExport = async (format: keyof typeof EXPORT_COMMANDS) => {
-    setShowExportMenu(false);
     setIsExporting(true);
     try {
       const path = await invoke<string | null>(EXPORT_COMMANDS[format], { meetingId });
@@ -59,59 +73,49 @@ export function SessionOrganizer({ meetingId, folderId }: { meetingId: string; f
 
   return (
     <div className="flex items-center gap-1.5">
-      <div className="relative">
-        <FolderIcon className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-        <select
-          value={currentFolderId ?? ''}
-          onChange={(e) => handleFolderChange(e.target.value)}
-          className="text-xs border border-gray-200 rounded-full pl-6 pr-2 py-1 bg-white appearance-none cursor-pointer hover:bg-gray-50"
+      <Select value={currentFolderId ?? NO_FOLDER} onValueChange={handleFolderChange}>
+        <SelectTrigger
+          className="h-auto w-auto gap-1 rounded-full border-gray-200 bg-white px-2.5 py-1 text-xs hover:bg-gray-50 [&>svg]:w-3 [&>svg]:h-3"
           title="Move to folder"
         >
-          <option value="">No folder</option>
+          <FolderIcon className="w-3.5 h-3.5 text-gray-400" />
+          <SelectValue placeholder="No folder" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_FOLDER} className="text-xs">No folder</SelectItem>
           {folders.map((f) => (
-            <option key={f.id} value={f.id}>{f.icon ? `${f.icon} ` : ''}{f.name}</option>
+            <SelectItem key={f.id} value={f.id} className="text-xs">
+              {f.icon ? `${f.icon} ` : ''}{f.name}
+            </SelectItem>
           ))}
-        </select>
-      </div>
-      <div className="relative">
-        <button
-          onClick={() => setShowExportMenu((v) => !v)}
-          disabled={isExporting}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-          title="Export this session to send or use elsewhere"
-        >
-          {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-          Export
-          <ChevronDown className="w-3 h-3 opacity-60" />
-        </button>
+        </SelectContent>
+      </Select>
 
-        {showExportMenu && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-            <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[170px]">
-              <button
-                onClick={() => handleExport('html')}
-                className="flex flex-col items-start w-full px-3 py-1.5 text-left hover:bg-gray-50"
-              >
-                <span className="text-xs font-medium text-gray-700">Shareable page (.html)</span>
-                <span className="text-[11px] text-gray-400">Opens in any browser, no app needed</span>
-              </button>
-              <button
-                onClick={() => handleExport('pdf')}
-                className="flex flex-col items-start w-full px-3 py-1.5 text-left hover:bg-gray-50"
-              >
-                <span className="text-xs font-medium text-gray-700">PDF (.pdf)</span>
-              </button>
-              <button
-                onClick={() => handleExport('docx')}
-                className="flex flex-col items-start w-full px-3 py-1.5 text-left hover:bg-gray-50"
-              >
-                <span className="text-xs font-medium text-gray-700">Word Document (.docx)</span>
-              </button>
-            </div>
-          </>
-        )}
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            disabled={isExporting}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            title="Export this session to send or use elsewhere"
+          >
+            {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            Export
+            <ChevronDown className="w-3 h-3 opacity-60" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[170px]">
+          <DropdownMenuItem onSelect={() => handleExport('html')} className="flex-col items-start">
+            <span className="text-xs font-medium">Shareable page (.html)</span>
+            <span className="text-[11px] text-gray-400">Opens in any browser, no app needed</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => handleExport('pdf')}>
+            <span className="text-xs font-medium">PDF (.pdf)</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => handleExport('docx')}>
+            <span className="text-xs font-medium">Word Document (.docx)</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

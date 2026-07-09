@@ -142,8 +142,8 @@ function fixture(cmd: string, args: InvokeArgs): unknown {
       return 'lecture';
     case 'api_get_speakers':
       return [
-        { id: 'sp-1', label: 'Speaker 1', display_name: 'Speaker 1' },
-        { id: 'sp-2', label: 'Speaker 2', display_name: 'Speaker 2' },
+        { id: 'sp-1', label: 'Speaker 1', display_name: 'Speaker 1', segment_count: 3 },
+        { id: 'sp-2', label: 'Speaker 2', display_name: 'Speaker 2', segment_count: 1 },
       ];
     case 'api_list_attachments':
       return [];

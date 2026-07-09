@@ -8,6 +8,7 @@ import { Search, Folder as FolderIcon, Tag as TagIcon, X } from 'lucide-react';
 import { CONTEXT_STYLES, CONTEXT_ORDER, ContextType } from '@/components/MeetingDetails/ContextTypeSelector';
 import { useSidebar, OrgFolder } from '@/components/Sidebar/SidebarProvider';
 import { EmptyState } from '@/components/EmptyState';
+import { SimpleSelect } from '@/components/ui/simple-select';
 
 interface SessionRow {
   id: string;
@@ -108,28 +109,26 @@ function SessionsPageInner() {
           />
         </div>
 
-        <select
+        <SimpleSelect
           value={contextFilter}
-          onChange={(e) => setContextFilter(e.target.value as ContextType | 'all')}
-          className="text-sm border border-gray-200 rounded-md px-2 py-1.5 bg-white"
-        >
-          <option value="all">All types</option>
-          {CONTEXT_ORDER.map((ct) => (
-            <option key={ct} value={ct}>{CONTEXT_STYLES[ct].label}</option>
-          ))}
-        </select>
+          onValueChange={(v) => setContextFilter(v as ContextType | 'all')}
+          options={[
+            { value: 'all', label: 'All types' },
+            ...CONTEXT_ORDER.map((ct) => ({ value: ct, label: CONTEXT_STYLES[ct].label })),
+          ]}
+          className="w-auto text-sm border-gray-200 rounded-md px-2 py-1.5 bg-white h-auto"
+        />
 
-        <select
+        <SimpleSelect
           value={folderFilter}
-          onChange={(e) => setFolderFilter(e.target.value)}
-          className="text-sm border border-gray-200 rounded-md px-2 py-1.5 bg-white"
-        >
-          <option value="all">All folders</option>
-          <option value="none">No folder</option>
-          {folders.map((f) => (
-            <option key={f.id} value={f.id}>{f.icon ? `${f.icon} ` : ''}{f.name}</option>
-          ))}
-        </select>
+          onValueChange={setFolderFilter}
+          options={[
+            { value: 'all', label: 'All folders' },
+            { value: 'none', label: 'No folder' },
+            ...folders.map((f) => ({ value: f.id, label: `${f.icon ? `${f.icon} ` : ''}${f.name}` })),
+          ]}
+          className="w-auto text-sm border-gray-200 rounded-md px-2 py-1.5 bg-white h-auto"
+        />
 
         {hasActiveFilters && (
           <button
