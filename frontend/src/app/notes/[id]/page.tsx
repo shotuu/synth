@@ -170,7 +170,7 @@ Quarterly product review session with stakeholders.
         </div>
       </div>
 
-      <div className="prose prose-blue max-w-none">
+      <div className="prose prose-invert max-w-none">
         <div dangerouslySetInnerHTML={{ __html: note.content.split('\n').map(line => {
           if (line.startsWith('# ')) {
             return `<h1>${line.slice(2)}</h1>`;

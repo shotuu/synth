@@ -68,7 +68,7 @@ function NotesEditor({
     <BlockNoteView
       editor={editor}
       onChange={handleChange}
-      theme="light"
+      theme="dark"
       data-testid="session-notes-editor"
     />
   );

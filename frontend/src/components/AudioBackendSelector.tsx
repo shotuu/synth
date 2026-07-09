@@ -104,7 +104,7 @@ export function AudioBackendSelector({
             <Info className="h-4 w-4" />
           </button>
           {showTooltip && (
-            <div className="absolute z-10 left-6 top-0 w-64 p-3 text-xs bg-gray-900 text-white rounded-lg shadow-lg">
+            <div className="absolute z-10 left-6 top-0 w-64 p-3 text-xs bg-gray-900 text-gray-50 rounded-lg shadow-lg">
               <p className="font-semibold mb-1">Audio Capture Methods:</p>
               <ul className="space-y-1">
                 {backends.map((backend) => (

@@ -362,7 +362,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                   <div className="w-px h-6 bg-gray-200 mx-1" />
 
                   <div className="flex items-center space-x-1 mx-2">
-                    <div className="text-sm text-gray-600 min-w-[40px]">
+                    <div className="font-mono text-xs text-gray-600 min-w-[40px]">
                       {formatTime(currentTime)}
                     </div>
                     <div
@@ -373,7 +373,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                         style={{ width: `${progress}%` }}
                       />
                     </div>
-                    <div className="text-sm text-gray-600 min-w-[40px]">
+                    <div className="font-mono text-xs text-gray-600 min-w-[40px]">
                       {formatTime(duration)}
                     </div>
                   </div>

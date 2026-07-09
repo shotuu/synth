@@ -150,7 +150,7 @@ function SessionsPageInner() {
               onClick={() => setTagFilter((prev) => (prev === tag ? null : tag))}
               className={`px-2 py-0.5 rounded-full text-xs border ${
                 tagFilter === tag
-                  ? 'bg-gray-800 text-white border-gray-800'
+                  ? 'bg-gray-800 text-gray-50 border-gray-800'
                   : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300'
               }`}
             >

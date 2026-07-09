@@ -92,7 +92,7 @@ export function SetupOverviewStep() {
         <div className="w-full max-w-xs space-y-4">
           <Button
             onClick={handleContinue}
-            className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white"
+            className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-gray-50"
           >
             Let's Go
           </Button>
