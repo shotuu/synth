@@ -344,48 +344,69 @@ Whisper (specifically **large-v3** or **large-v3-turbo**) remains the practical 
 - After diarization gives you `SPEAKER_00`/`SPEAKER_01` labels, let the user map those to real names once per session (or once per recurring participant) — that's the "identify different people talking" feature you want, and it's a UI/UX problem on top of a solved diarization problem, not a hard ML problem.
 - Diarization is meaningfully slower on CPU-only machines; if a user has an NVIDIA GPU, run it there, otherwise it'll add real processing time after the recording ends — surface that as a background/progress step rather than blocking the UI.
 
-**Bottom line for the spec:** Whisper (via faster-whisper) stays your default transcription engine, Parakeet stays your speed option, and pyannote/WhisperX-style diarization is a new, genuinely free addition worth prioritizing — it directly answers your "identify who's talking" ask.
+**Bottom line for the spec:** Whisper (via faster-whisper) stays your default transcription engine, Parakeet stays your speed option, and pyannote/WhisperX-style diarization is a new, genuinely free addition worth prioritizing — it directly answers your "identify who's talking" ask. *(Resolved during Phase 4 planning: this ships as Rust + ONNX Runtime rather than a Python sidecar — see §13.)*
 
 ---
 
-## 8. UI/UX direction
+## 8. UI/UX direction — the design system as built (Phase 10)
 
-You want this to feel good to use, not like a generic internal tool. A few concrete directions to hand to Claude Code (or a design pass) rather than leaving "make it look nice" implicit:
+*Rewritten after Phase 10 shipped. This documents what the app actually is, and is the reference for all UI work going forward. The original aspirational version of this section is in git history.*
 
-- **Structure like Notion, read like a document.** Left sidebar = folder tree (nestable, icons, drag-to-reorder). Main pane = a single scrollable session page, not a tabbed interface — transcript, uploaded files, your notes, and the generated summary all live as sections on one page, the way a Notion page holds multiple blocks. Tabs would fragment something that's conceptually one document.
-- **Give the summary visual priority.** It's the payoff of the whole session — treat it as the top of the page (or a pinned/collapsible panel), with the raw transcript and source material available below/alongside for verification, not competing for the same visual weight.
-- **Speaker color-coding as the signature element.** Once diarization is in, assigning each speaker a consistent color (used in the transcript, in name tags, in the summary's attendee list) is a small, distinctive touch that makes multi-speaker sessions genuinely easier to scan — this is a good candidate for the one "signature" visual idea worth being deliberate about, rather than defaulting to a generic AI-tool look (cream background + serif + terracotta accent is the current cliché to actively avoid).
-- **Context-type badges.** Since context_type drives the summary shape, make it visually obvious on every session card/list item (a small colored tag: Meeting / Lecture / Discussion / Coffee Chat) so scanning a folder full of sessions is fast.
-- **Empty and loading states matter here specifically** because transcription and summarization aren't instant — show real progress ("Transcribing… 4 of 12 min processed," "Identifying speakers…", "Generating summary…") rather than a generic spinner, since these steps can take real time locally.
-- **Command palette (Cmd/Ctrl+K)** for jumping between folders/sessions — a small addition that makes a Notion-style tree feel fast rather than click-heavy.
-- **Dark mode** — Meetily already has this, keep it.
-- **Copy/microcopy:** name things by what the user controls, not how the system works — "Add to this session," not "Ingest source." Buttons should describe the result ("Generate summary"), and once clicked, later confirmations should use the same word ("Summary generated"), not a synonym.
+### Identity: dark-only, violet-anchored, Obsidian-inspired
 
-If you're building this UI with Claude Code and have design-focused tooling available, it's worth asking it to take one real aesthetic risk on the speaker-color or context-badge system specifically, then keep everything else disciplined and quiet around it — a maximalist treatment everywhere would fight the "read like a document" goal above.
+The app is **dark-only** — it's used in meetings, lectures, and low-light settings, and committing to one theme keeps every screen tuned. The palette lives in `frontend/tailwind.config.js`, which **remaps the raw Tailwind scales** (see the comment block there before writing any color): `gray` is inverted into violet-tinted dark neutrals, `blue` *is* the accent scale, and the alert hues get dark tints at 50–300 / pastels at 800–900. **Write new component colors as if designing for a light theme** (`bg-white` card, `text-gray-900` heading, `bg-blue-600` button, `bg-red-50 text-red-800` alert) and the mapping lands them on dark. Never pair `text-white` with `bg-gray-800/900` (use `text-gray-50`); avoid unremapped hues (`slate`, `zinc`, `neutral`, and use the speaker palette below rather than raw `cyan`/`rose`/`lime`).
+
+- **Surfaces**: window base `#131316`, panels `#1b1b1f`, elevated/hover `#222227`, hairline borders `#2b2b31`. Depth comes from these subtle lightness steps and hairlines — not boxes; shadows are reserved for true overlays (popovers, dialogs).
+- **Accent**: Synth violet `#8b6dff` (`blue-500` post-remap) for every interactive/active state — active nav and sessions get a 2px violet left border + faint tint, never a loud fill.
+- **Type**: Source Sans 3 for UI and reading; **JetBrains Mono** (`font-mono`) for timestamps, durations, dates, and paths — the technical-instrument accent. Long-form reading (transcripts, notes, summaries) uses generous line-height (`leading-relaxed` / 1.7 in BlockNote).
+
+### The signature element: speaker colors anchored on the accent
+
+Per-speaker colors (`frontend/src/lib/speaker-colors.ts`, mirrored in `src-tauri/src/organization/export.rs` — change one, change both): **Speaker 1 is the interface accent violet**, followed by seven hues tuned to matched saturation/lightness (cyan, emerald, amber, rose, sky, lime, orange). Default "Speaker N" labels map to palette order deterministically; renamed speakers hash to a stable color. Chips render as the hue at 15% alpha with a lightened-text variant. This is the one deliberate aesthetic risk; everything else stays quiet around it.
+
+### Layout shell
+
+- **Sidebar** (`components/Sidebar/`, tree in `FolderTree.tsx`): Obsidian-style — pinned search (with transcript-match snippets inline), one violet **"New session"** primary action, quiet nav list (Home / All Sessions / Action Items / Storage), then the folder tree from the `folders` table: chevron expand/collapse, indent guides, hover-revealed rename/delete, drag-and-drop of sessions and folders onto folders, an "Unfiled" inbox bucket. Resizable 200–400px (persisted) and **fully hideable** (floating reopen button) — no icon rail. The sidebar is a real flex sibling; content never compensates for its width (overlays anchor to `MainContent`'s `relative`).
+- **Command palette (Cmd/Ctrl+K)** (`components/CommandPalette.tsx`): jump to any session/folder/page, search transcript content, start a new session.
+- **Dropdowns/menus/selects are always portal-rendered Radix primitives** (`components/ui/`, `SimpleSelect` for flat option lists) — never absolute-positioned divs or native `<select>`, which clip inside overflow containers. This was a recurring bug class; don't reintroduce it.
+
+### The two main views
+
+- **Live recording** (`app/_components/LiveSessionView.tsx`): recording turns the home screen into a resizable split — live transcript beside a BlockNote notes editor, transcript collapsible to zero for distraction-free writing, layout persisted. Notes buffer to localStorage during recording and flush into `meeting_notes` when the stop flow yields a `meeting_id`; the review view reads the same record.
+- **Session review** (`app/meeting-details/`): the summary is the hero — large editable title + mono date line, summary occupying the dominant pane — with transcript, files, and your notes alongside for verification. *Deliberate deviation from the original brief*: this is a summary-dominant split, not a single scrolling column; the sources sit **alongside** (as this section always allowed) because checking the transcript against the summary is the core review gesture. The "no tabs" rule stands.
+
+### Still true, carried forward
+
+- **Context-type badges** on every session row/list (colored dot + Meeting / Lecture / Discussion / Coffee Chat chip) — `context_type` drives the summary shape, so it stays visible everywhere.
+- **Empty and loading states show real progress** ("Transcribing… 4 of 12 min", "Identifying speakers…", "Generating summary…"), never a bare spinner — local inference takes real time.
+- **Copy/microcopy:** name things by what the user controls, not how the system works — "Add to this session," not "Ingest source"; buttons describe the result ("Generate summary") and confirmations reuse the same word ("Summary generated").
+- **Verification tooling**: `frontend/src/lib/devBrowserShim.ts` mocks the Tauri bridge with fixture data so every screen renders in a plain browser (`pnpm run dev`, port 3118); `localStorage.synthShimRecording = '1'` previews the live-recording workspace. Extend its `fixture()` switch when new commands land.
 
 ---
 
 ## 9. Feature phases (build in this order — don't ask Claude Code to do all of this in one shot)
 
-**Phase 0 — Fork & orient**
+*Per your report, Phases 0–6 and 9 are implemented; Phases 7–8 remain deferred per §13's resolution to skip the org backend for v1.*
+
+**Phase 0 — Fork & orient** *(complete)*
 Clone `Zackriya-Solutions/meetily`, get it building locally, understand its existing backend/frontend structure before changing anything.
 
-**Phase 1 — Data model extension**
+**Phase 1 — Data model extension** *(complete)*
 Add `context_type`, `folders`, `summary_templates`, `action_items`, `note_attachments`, `note_user_content`, `note_audio` tables to the local SQLite schema as a new sqlx migration (upstream's existing migration pattern). Reconcile against what already exists rather than duplicating it — notably, replace the existing flat `folder_path` column with the relational `folders` table (§13), and check whether `meeting_notes` can be renamed/reused directly as `note_user_content` instead of creating a parallel table. Keep org/user/postgres tables separate — those come in Phase 7 (currently deferred, see §13).
 
-**Phase 2 — Multi-source sessions**
+**Phase 2 — Multi-source sessions** *(complete)*
 Build file upload + parsing (PDF/DOCX/PPTX text extraction, selective OCR), the written-notes block editor, audio file import as a second entry point alongside live recording (§5), and the context-assembler service described in §5. At this point a session can hold a transcript (recorded or imported), files, and notes independently of summarization.
 
-**Phase 3 — Context-adaptive summarization**
+**Phase 3 — Context-adaptive summarization** *(complete)*
 Per Phase 0 findings: upstream already has a JSON-based summary template system (six built-ins, custom-template loader) and summary-language detection, so this phase is narrower than originally scoped — it's really about mapping the brief's 5 context-type templates (§6) onto the existing template mechanism, enforcing structured JSON output per template, wiring in the context-assembler from Phase 2, and adding the auto-classification step. Confirm what the existing six built-ins actually cover before writing new ones — some may already be close enough to adapt rather than replace.
 
-**Phase 4 — Speaker diarization**
-Integrate pyannote.audio (WhisperX-style pipeline) into the existing transcription flow. Add the UI for mapping SPEAKER_00/01 labels to real names.
+**Phase 4 — Speaker diarization** *(complete)*
+Rust + ONNX Runtime pipeline (pyannote's segmentation model + a speaker-embedding model, per the resolved decision in §13), integrated into the existing transcription flow. UI for mapping SPEAKER_00/01 labels to real names.
 
-**Phase 5 — Personal organization UI**
+**Phase 5 — Personal organization UI** *(complete — but see Phase 10, which reworks this)*
 Folder tree, drag-to-reorder, tags, note list with filters by context_type/tag/date, search (reuse Meetily's existing vector DB), command palette, a cross-note action item view (all open todos across every session, filterable by folder/date — no new tables needed, just a query against existing `action_items`), and share-link generation (§12) for casual read-only sharing without full org auth.
 
-**Phase 6 — Storage Manager**
+**Phase 6 — Storage Manager** *(complete)*
 Build the cleanup tool described in §4: sortable session list by audio size, bulk delete-audio/compress/delete-session actions, aggregate storage stats. This needs the note list UI from Phase 5 to already exist.
 
 **Phase 7 — Org/team backend** *(deferred — see §13's resolution to skip this for v1 in favor of `share_links`; only pick this up if you end up actually needing persistent team membership/permissions)*
@@ -394,8 +415,11 @@ Stand up the FastAPI + Postgres service. Auth, org creation, invites, roles. Imp
 **Phase 8 — Shared workspace UI** *(deferred alongside Phase 7)*
 Org switcher, shared folder views, permission-gated editing, activity/member list.
 
-**Phase 9 — Polish**
+**Phase 9 — Polish** *(complete — but see Phase 10, which substantially expands on the "visual polish pass" this phase originally scoped lightly)*
 Export formats (inherit Meetily's PDF/DOCX/MD export, extend to include structured summary sections + attached files), settings for AI provider selection per feature, custom template editor UI, visual polish pass per §8.
+
+**Phase 10 — UI/UX Overhaul** *(current)*
+With all of Phases 0–6 and 9 built, the UI turned out to lean too heavily on Meetily's original design — Phase 9's "visual polish pass" undersold how much rework was actually needed. This phase reworks the sidebar built in Phase 5 (Obsidian-inspired file tree), fixes a portal/clipping bug in dropdown components app-wide, adds a dedicated live-recording view that Phase 2's multi-source work didn't originally include (split pane: live transcript + `note_user_content` BlockNote editor, written concurrently rather than as a separate later step), and fixes the dock/window display name. Once built, this phase's actual output supersedes §8 as the current source of truth for the app's design system.
 
 ---
 
@@ -487,7 +511,7 @@ Most of these have a clear answer once you frame this as primarily a personal to
 - **Imported audio — copy vs. reference:** copy into app storage. Simpler, safer, and consistent with how Storage Manager treats everything else.
 - **Block editor library:** BlockNote, not TipTap — reversed from the earlier pick once Phase 0 orientation found BlockNote already integrated upstream (used in summary views) with an unused `meeting_notes` table that maps directly to `note_user_content`. Standardize on what's already there rather than introducing a second editor dependency.
 - **Folders: relational table, not the existing flat `folder_path` column.** Upstream stores folder as a flat string on meetings. Keep the brief's original `folders` table (parent_folder_id, icon, sort_order) instead — the Notion-style tree in §8 (nesting, icons, drag-to-reorder) needs real referential structure, not a path string. Decide this in Phase 1 before other code assumes the flat column.
-- **Phase 4 diarization delivery mechanism:** upstream archived its Python/FastAPI backend — transcription, LLM providers, and storage are now Rust-native. pyannote.audio is Python-only, so it'll need a sidecar process analogous to the existing `llama-helper` pattern rather than slotting into an existing service. Not a Phase 1 blocker, just flagged so Phase 4 doesn't assume a Python backend that no longer exists.
+- **Phase 4 diarization delivery mechanism: Rust + ONNX Runtime, not a Python sidecar.** Run pyannote's segmentation model plus a speaker-embedding model via ONNX Runtime — the same runtime already shipping for Parakeet — rather than bundling Python/torch for the full pyannote.audio pipeline. Ungated models, no HuggingFace token flow, CPU-viable, and consistent with the app being 100% Rust/Tauri with no Python anywhere else in it. Accuracy runs slightly below the full pyannote pipeline, most noticeably at 4+ speakers — acceptable given most realistic sessions (lectures, small meetings, 1-on-1s, study groups) sit below that. A Python-sidecar "high accuracy mode" remains an option to add later if real usage shows this isn't enough, rather than something to build up front.
 - **Diarization compute:** CPU-only fallback (transcription without speaker labels) should always work; treat GPU acceleration — NVIDIA *or* Apple Silicon via PyTorch's MPS backend, since you're likely on a Mac — as a speed bonus, not a hard requirement. Don't gate the feature on hardware you may not have.
 - **Default summary language:** `auto` (match the transcript's detected language). Costs nothing to default correctly even if you never hit non-English content.
 
