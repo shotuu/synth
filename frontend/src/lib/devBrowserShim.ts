@@ -68,10 +68,14 @@ function fixture(cmd: string, args: InvokeArgs): unknown {
       };
     case 'check_first_launch':
       return false;
+    // Set localStorage.synthShimRecording = '1' in the browser console to
+    // preview the live-recording workspace without a native audio pipeline.
     case 'is_recording':
-      return false;
-    case 'get_recording_state':
-      return { is_recording: false, is_paused: false, is_active: false, recording_duration: 0, active_duration: 0 };
+      return localStorage.getItem('synthShimRecording') === '1';
+    case 'get_recording_state': {
+      const rec = localStorage.getItem('synthShimRecording') === '1';
+      return { is_recording: rec, is_paused: false, is_active: rec, recording_duration: rec ? 754 : 0, active_duration: rec ? 754 : 0 };
+    }
     case 'get_audio_devices':
       return [
         { name: 'MacBook Pro Microphone', device_type: 'Input' },
@@ -149,6 +153,8 @@ function fixture(cmd: string, args: InvokeArgs): unknown {
       return [];
     case 'api_get_meeting_notes':
       return null;
+    case 'api_save_meeting_notes':
+      return true;
     case 'api_list_templates':
       return [];
     // Version / platform probes

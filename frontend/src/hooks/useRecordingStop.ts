@@ -12,6 +12,8 @@ import {
   applyPinnedSummaryLanguageToMeeting,
   detectAndCacheSummaryLanguage,
 } from '@/lib/summary-language-preferences';
+import { invoke } from '@tauri-apps/api/core';
+import { loadLiveNotesDraft, draftHasContent, clearLiveNotesDraft } from '@/lib/liveNotesStore';
 
 type SummaryStatus = 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
 
@@ -292,6 +294,28 @@ export function useRecordingStop(
           console.log('✅ Successfully saved COMPLETE meeting with ID:', meetingId);
           console.log('   Transcripts:', freshTranscripts.length);
           console.log('   folder_path:', folderPath);
+
+          // Flush notes typed during the recording (LiveSessionView) into
+          // meeting_notes, now that a meeting_id finally exists. On failure
+          // the draft stays in localStorage rather than losing the user's
+          // writing — it resurfaces as the next live session's content.
+          const liveNotes = loadLiveNotesDraft();
+          if (draftHasContent(liveNotes)) {
+            try {
+              await invoke('api_save_meeting_notes', {
+                meetingId,
+                notesMarkdown: liveNotes.notesMarkdown,
+                notesJson: liveNotes.notesJson,
+              });
+              clearLiveNotesDraft();
+              console.log('✅ Live session notes attached to meeting', meetingId);
+            } catch (error) {
+              console.error('Failed to save live session notes:', error);
+              toast.warning('Your notes could not be attached to this session', {
+                description: 'They are kept locally and will reappear in your next live session.',
+              });
+            }
+          }
 
           // Mark meeting as saved in IndexedDB (for recovery system)
           await markMeetingAsSaved();

@@ -12,6 +12,7 @@ import { StatusOverlays } from '@/app/_components/StatusOverlays';
 import Analytics from '@/lib/analytics';
 import { SettingsModals } from './_components/SettingsModal';
 import { TranscriptPanel } from './_components/TranscriptPanel';
+import { LiveSessionView } from './_components/LiveSessionView';
 import { useModalState } from '@/hooks/useModalState';
 import { useRecordingStateSync } from '@/hooks/useRecordingStateSync';
 import { useRecordingStart } from '@/hooks/useRecordingStart';
@@ -213,11 +214,17 @@ export default function Home() {
         onLoadPreview={loadMeetingTranscripts}
       />
       <div className="flex flex-1 overflow-hidden">
-        <TranscriptPanel
-          isProcessingStop={isProcessingStop}
-          isStopping={isStopping}
-          showModal={showModal}
-        />
+        {/* While a session is live (or wrapping up), the page becomes the
+            split transcript/notes workspace; idle keeps the start screen. */}
+        {recordingState.isRecording || isStopping || isProcessingStop ? (
+          <LiveSessionView isProcessingStop={isProcessingStop} isStopping={isStopping} />
+        ) : (
+          <TranscriptPanel
+            isProcessingStop={isProcessingStop}
+            isStopping={isStopping}
+            showModal={showModal}
+          />
+        )}
 
         {/* Recording controls - only show when permissions are granted or already recording and not showing status messages */}
         {(hasMicrophone || isRecording) &&
