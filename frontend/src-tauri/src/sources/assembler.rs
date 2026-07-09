@@ -7,6 +7,7 @@ use sqlx::SqlitePool;
 
 use crate::database::repositories::attachment::AttachmentsRepository;
 use crate::database::repositories::meeting_notes::MeetingNotesRepository;
+use crate::sources::extraction::sanitize_extracted_text as sanitize_for_prompt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttachmentContext {
@@ -145,7 +146,13 @@ pub async fn assemble_context(
             a.extracted_text.map(|text| AttachmentContext {
                 file_name: a.file_name,
                 file_type: a.file_type,
-                text,
+                // Defense in depth against control-character garbage (NUL in
+                // particular breaks llama.cpp tokenization outright) reaching
+                // the summarization prompt: extraction sanitizes new
+                // attachments, but rows stored before that fix — or any
+                // future source that isn't run through the extractor — still
+                // need cleaning at the one place every prompt is built.
+                text: sanitize_for_prompt(&text),
             })
         })
         .collect();
@@ -153,6 +160,7 @@ pub async fn assemble_context(
     let user_notes_markdown = MeetingNotesRepository::get(pool, meeting_id)
         .await?
         .and_then(|n| n.notes_markdown)
+        .map(|md| sanitize_for_prompt(&md))
         .filter(|md| !md.trim().is_empty());
 
     let mut sources_used = Vec::new();

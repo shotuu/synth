@@ -18,13 +18,30 @@ type InvokeArgs = Record<string, unknown> | undefined;
 const NOW = new Date();
 const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86400000).toISOString();
 
-const FOLDERS = [
+interface FixtureFolder {
+  id: string;
+  parent_folder_id: string | null;
+  name: string;
+  icon: string | null;
+  sort_order: number;
+}
+
+const FOLDERS: FixtureFolder[] = [
   { id: 'folder-classes', parent_folder_id: null, name: 'Classes', icon: null, sort_order: 0 },
   { id: 'folder-work', parent_folder_id: null, name: 'Work', icon: null, sort_order: 1 },
   { id: 'folder-cs229', parent_folder_id: 'folder-classes', name: 'CS 229', icon: null, sort_order: 0 },
 ];
 
-const MEETINGS = [
+interface FixtureMeeting {
+  id: string;
+  title: string;
+  context_type: string;
+  folder_id: string | null;
+  tags: string | null;
+  created_at: string;
+}
+
+const MEETINGS: FixtureMeeting[] = [
   { id: 'demo-1', title: 'CS 229 Lecture 12 — Kernel Methods', context_type: 'lecture', folder_id: 'folder-cs229', tags: '["ml","kernels"]', created_at: daysAgo(0.2) },
   { id: 'demo-2', title: 'Sprint Planning — Q3 Roadmap', context_type: 'meeting', folder_id: 'folder-work', tags: '["planning"]', created_at: daysAgo(1) },
   { id: 'demo-3', title: 'Design Review: Export Pipeline', context_type: 'meeting', folder_id: 'folder-work', tags: '["design","exports"]', created_at: daysAgo(2) },
@@ -97,10 +114,54 @@ function fixture(cmd: string, args: InvokeArgs): unknown {
         preferred_mic_device: 'MacBook Pro Microphone',
         preferred_system_device: 'BlackHole 2ch',
       };
+    // Fresh shallow copies each call, matching real Tauri IPC (every invoke
+    // deserializes new JSON into new objects) — returning the live array
+    // reference made React's setState(sameRef) bail out as a no-op after
+    // in-place mutations below, masking real updates in browser testing.
     case 'api_get_meetings':
-      return MEETINGS;
+      return MEETINGS.map((m) => ({ ...m }));
     case 'api_list_folders':
-      return FOLDERS;
+      return FOLDERS.map((f) => ({ ...f }));
+    // Folder tree mutations: mutate the fixture arrays in place (mirroring
+    // real persistence) so refetch-after-drop actually shows the move —
+    // otherwise every drag-and-drop looks like a no-op against static fixtures.
+    case 'api_set_meeting_folder': {
+      const m = MEETINGS.find((mm) => mm.id === (args?.meetingId as string));
+      if (m) m.folder_id = (args?.folderId as string | null) ?? null;
+      return null;
+    }
+    case 'api_move_folder': {
+      const f = FOLDERS.find((ff) => ff.id === (args?.folderId as string));
+      if (f) f.parent_folder_id = (args?.newParentId as string | null) ?? null;
+      return null;
+    }
+    case 'api_create_folder': {
+      const id = `folder-${Math.random().toString(36).slice(2, 8)}`;
+      const created: FixtureFolder = {
+        id,
+        parent_folder_id: (args?.parentFolderId as string | null) ?? null,
+        name: (args?.name as string) ?? 'New folder',
+        icon: (args?.icon as string | null) ?? null,
+        sort_order: FOLDERS.length,
+      };
+      FOLDERS.push(created);
+      return created;
+    }
+    case 'api_rename_folder': {
+      const f = FOLDERS.find((ff) => ff.id === (args?.folderId as string));
+      if (f) f.name = (args?.name as string) ?? f.name;
+      return true;
+    }
+    case 'api_delete_folder': {
+      const idx = FOLDERS.findIndex((ff) => ff.id === (args?.folderId as string));
+      if (idx >= 0) FOLDERS.splice(idx, 1);
+      MEETINGS.forEach((m) => {
+        if (m.folder_id === (args?.folderId as string)) {
+          m.folder_id = null;
+        }
+      });
+      return null;
+    }
     case 'api_list_action_items':
       return ACTION_ITEMS;
     case 'api_get_storage_stats':

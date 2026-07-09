@@ -22,12 +22,23 @@ export interface MeetingNotesData {
 
 const NOTES_AUTOSAVE_DELAY_MS = 1200;
 
+export interface UseSourcesResult {
+  attachments: NoteAttachmentInfo[];
+  initialNotes: MeetingNotesData | null;
+  isLoading: boolean;
+  isAttaching: boolean;
+  isSavingNotes: boolean;
+  attachFiles: () => Promise<void>;
+  deleteAttachment: (id: string) => Promise<void>;
+  scheduleNotesSave: (notesJson: string, notesMarkdown: string) => void;
+}
+
 /**
  * Loads and mutates a session's sources: file attachments and the user's
  * own written notes. Notes saves are debounced; attachments update
  * optimistically after each backend call.
  */
-export function useSources(meetingId: string) {
+export function useSources(meetingId: string): UseSourcesResult {
   const [attachments, setAttachments] = useState<NoteAttachmentInfo[]>([]);
   const [initialNotes, setInitialNotes] = useState<MeetingNotesData | null>(null);
   const [isLoading, setIsLoading] = useState(true);

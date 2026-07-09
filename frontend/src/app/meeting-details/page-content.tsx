@@ -8,12 +8,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { TranscriptPanel } from '@/components/MeetingDetails/TranscriptPanel';
 import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
-import { SourcesPanel } from '@/components/MeetingDetails/SourcesPanel';
+import { AttachmentsPanel } from '@/components/MeetingDetails/AttachmentsPanel';
+import { NotesPanel } from '@/components/MeetingDetails/NotesPanel';
 import { ContextTypeSelector } from '@/components/MeetingDetails/ContextTypeSelector';
 import { SpeakerControls } from '@/components/MeetingDetails/SpeakerControls';
 import { SessionOrganizer } from '@/components/MeetingDetails/SessionOrganizer';
-import { TemplateEditorDialog } from '@/components/MeetingDetails/TemplateEditorDialog';
 import { ModelConfig } from '@/components/ModelSettingsModal';
+import { useSources } from '@/hooks/meeting-details/useSources';
 
 // Custom hooks
 import { useMeetingData } from '@/hooks/meeting-details/useMeetingData';
@@ -139,6 +140,11 @@ export default function PageContent({
     meeting,
   });
 
+  // Lifted here (rather than inside a Sources panel) so the attachments and
+  // notes sections can be two independent, equal-height siblings alongside
+  // the transcript instead of one combined, height-capped accordion.
+  const sources = useSources(meeting.id);
+
   // Track page view
   useEffect(() => {
     Analytics.trackPageView('meeting_details');
@@ -168,6 +174,11 @@ export default function PageContent({
     };
   }, [shouldAutoGenerate, meeting.id]); // Re-run if meeting changes
 
+  // The summary hasn't been generated yet: the right pane has nothing to
+  // fill, so give the left column (transcript/files/notes) more room until
+  // there's a real summary worth the space (task: "adaptive summary width").
+  const hasSummary = !!meetingData.aiSummary;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -175,23 +186,30 @@ export default function PageContent({
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className="flex flex-col h-screen bg-gray-50"
     >
+      {/* Full-width top bar: session type, speakers, folder/export. Padded
+          start (pl-12) leaves clearance for the floating sidebar-reopen
+          button when the sidebar is hidden, instead of overlapping it. */}
+      <div className="flex items-center gap-2 pl-12 pr-4 py-2 border-b border-gray-200 bg-white overflow-x-auto shrink-0">
+        <ContextTypeSelector
+          meetingId={meeting.id}
+          onContextChange={templates.applyContextTypeDefault}
+        />
+        <SpeakerControls
+          meetingId={meeting.id}
+          onTranscriptChanged={onRefetchTranscripts}
+        />
+        <div className="ml-auto shrink-0 flex items-center gap-1.5">
+          <SessionOrganizer meetingId={meeting.id} folderId={meeting.folder_id} />
+        </div>
+      </div>
+
       <div className="flex flex-1 overflow-hidden">
-        {/* Left column: source material — transcript, files, your notes */}
-        <div className="hidden md:flex md:w-1/4 lg:w-1/3 min-w-0 border-r border-gray-200 flex-col shrink-0">
-          <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 bg-white overflow-x-auto">
-            <ContextTypeSelector
-              meetingId={meeting.id}
-              onContextChange={templates.applyContextTypeDefault}
-            />
-            <SpeakerControls
-              meetingId={meeting.id}
-              onTranscriptChanged={onRefetchTranscripts}
-            />
-            <div className="ml-auto shrink-0 flex items-center gap-1.5">
-              <TemplateEditorDialog onTemplatesChanged={templates.refetchTemplates} />
-              <SessionOrganizer meetingId={meeting.id} folderId={meeting.folder_id} />
-            </div>
-          </div>
+        {/* Left column: transcript, files, and notes as three roughly
+            equal-height sections — each an independent source feeding the
+            context assembler (PROJECT_BRIEF.md §5). */}
+        <div
+          className={`hidden md:flex ${hasSummary ? 'md:w-1/4 lg:w-1/3' : 'md:w-1/2 lg:w-3/5'} min-w-0 border-r border-gray-200 flex-col shrink-0 transition-[width] duration-200`}
+        >
           <TranscriptPanel
             transcripts={meetingData.transcripts}
             customPrompt={customPrompt}
@@ -213,7 +231,8 @@ export default function PageContent({
             meetingFolderPath={meeting.folder_path}
             onRefetchTranscripts={onRefetchTranscripts}
           />
-          <SourcesPanel meetingId={meeting.id} />
+          <AttachmentsPanel sources={sources} />
+          <NotesPanel meetingId={meeting.id} sources={sources} />
         </div>
         <SummaryPanel
           meeting={meeting}

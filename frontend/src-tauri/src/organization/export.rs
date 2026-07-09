@@ -18,20 +18,45 @@ pub struct SpeakerColor {
     pub fg: &'static str,
 }
 
-/// Mirrors frontend/src/lib/speaker-colors.ts so an exported file's speaker
-/// colors match what the user sees in the app.
+/// Mirrors frontend/src/lib/speaker-colors.ts: the same violet-anchored hue
+/// ORDER (violet, cyan, emerald, amber, rose, sky, lime, orange) and the same
+/// label→slot rules, in light-legible variants — the exported page renders on
+/// white, so the in-app translucent-on-dark chips are matched by hue identity
+/// rather than by exact color. Change one file, change both.
 pub const PALETTE: &[SpeakerColor] = &[
-    SpeakerColor { bg: "#dbeafe", fg: "#1e40af" },
-    SpeakerColor { bg: "#d1fae5", fg: "#065f46" },
-    SpeakerColor { bg: "#fef3c7", fg: "#92400e" },
-    SpeakerColor { bg: "#ede9fe", fg: "#5b21b6" },
-    SpeakerColor { bg: "#ffe4e6", fg: "#9f1239" },
-    SpeakerColor { bg: "#cffafe", fg: "#155e75" },
-    SpeakerColor { bg: "#ecfccb", fg: "#3f6212" },
-    SpeakerColor { bg: "#fed7aa", fg: "#9a3412" },
+    SpeakerColor { bg: "#ece7ff", fg: "#5a3ee0" }, // violet — the accent
+    SpeakerColor { bg: "#dff5f9", fg: "#0e7f95" }, // cyan
+    SpeakerColor { bg: "#e2f8ee", fg: "#177d52" }, // emerald
+    SpeakerColor { bg: "#faf1dc", fg: "#8f6a14" }, // amber
+    SpeakerColor { bg: "#fdeaef", fg: "#c2325d" }, // rose
+    SpeakerColor { bg: "#e6f0fe", fg: "#1d63c4" }, // sky
+    SpeakerColor { bg: "#f0f7e2", fg: "#5a7a1c" }, // lime
+    SpeakerColor { bg: "#fdeee1", fg: "#b05f1d" }, // orange
 ];
 
+/// "Speaker 3" -> Some(3); anything else -> None. Keep in sync with
+/// defaultSpeakerNumber in speaker-colors.ts.
+fn default_speaker_number(label: &str) -> Option<usize> {
+    let lower = label.trim().to_lowercase();
+    let rest = lower.strip_prefix("speaker")?;
+    // The TS regex requires whitespace between the word and the number
+    // ("speaker3" is treated as a custom name) — match that exactly.
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let digits = rest.trim_start();
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
 pub fn speaker_color(label: &str) -> &'static SpeakerColor {
+    if let Some(n) = default_speaker_number(label) {
+        if n >= 1 {
+            return &PALETTE[(n - 1) % PALETTE.len()];
+        }
+    }
     let mut hash: i32 = 0;
     for byte in label.bytes() {
         hash = hash.wrapping_mul(31).wrapping_add(byte as i32);

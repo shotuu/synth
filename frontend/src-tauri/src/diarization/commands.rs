@@ -14,6 +14,23 @@ use crate::state::AppState;
 /// Meetings with a diarization run currently in flight (double-click guard)
 static RUNNING: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
+/// RAII guard removing a meeting_id from RUNNING when dropped. Rust runs
+/// `Drop` impls during unwind too, so this clears the guard even if the
+/// pipeline panics instead of returning an `Err` — a plain "remove after
+/// the match" (the previous approach) skips on panic, permanently wedging
+/// that meeting at "Speaker identification is already running for this
+/// session" for the rest of the app's lifetime, with no way to retry short
+/// of a restart.
+struct RunningGuard(String);
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        if let Ok(mut running) = RUNNING.lock() {
+            running.remove(&self.0);
+        }
+    }
+}
+
 const MAX_SPEAKERS: usize = 8;
 
 #[derive(Clone, Serialize)]
@@ -98,11 +115,8 @@ pub async fn api_identify_speakers<R: Runtime>(
     let app_handle = app.clone();
 
     tauri::async_runtime::spawn(async move {
+        let _guard = RunningGuard(meeting_id.clone());
         let result = run_identify_speakers(&app_handle, &pool, &meeting_id).await;
-
-        if let Ok(mut running) = RUNNING.lock() {
-            running.remove(&meeting_id);
-        }
 
         match result {
             Ok((speakers, segments_labeled)) => {
@@ -187,7 +201,21 @@ async fn run_identify_speakers<R: Runtime>(
     progress_task.abort();
 
     if spans.is_empty() {
-        return Err("No speech segments found in the audio".to_string());
+        // A real, observed failure mode: the bundled speaker-segmentation
+        // model can fail to detect any speech in some recordings even
+        // though transcription (a separate model) clearly found speech in
+        // the same audio — confirmed not caused by length, level, or clipping
+        // (tested with length variation and multiple gain-normalization
+        // passes, all reproduced 0 segments). This is a real limitation of
+        // that model on some audio profiles, not evidence the recording is
+        // silent — say so plainly rather than implying user error.
+        return Err(
+            "Speaker detection couldn't identify distinct voices in this recording. \
+             This can happen with some recordings even when transcription worked fine — \
+             it's a limitation of the speaker-detection model on certain audio, not a \
+             sign the recording is empty. The transcript itself is unaffected."
+                .to_string(),
+        );
     }
 
     // 3. Map spans onto transcript rows

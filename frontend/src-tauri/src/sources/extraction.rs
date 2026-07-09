@@ -47,7 +47,8 @@ pub fn extract_text(path: &Path, file_type: &str) -> Option<String> {
 
     match result {
         Ok(text) => {
-            let trimmed = text.trim();
+            let cleaned = sanitize_extracted_text(&text);
+            let trimmed = cleaned.trim();
             if trimmed.is_empty() {
                 None
             } else {
@@ -59,6 +60,21 @@ pub fn extract_text(path: &Path, file_type: &str) -> Option<String> {
             None
         }
     }
+}
+
+/// Strip control characters that shouldn't appear in real text but do leak
+/// out of malformed/complex PDFs (custom glyph-to-codepoint font encodings
+/// misdecoding as NUL and other C0/C1 control bytes). Left in place, a NUL
+/// byte survives all the way into the summarization prompt and breaks
+/// tokenization outright: llama-cpp-2's `str_to_token` builds a `CString`,
+/// which errors on any interior NUL ("failed to tokenize prompt" — not a
+/// prompt-size issue, however large the file). Keeps newline/tab/CR;
+/// everything else in the C0 (U+0000-U+001F), DEL (U+007F), and C1
+/// (U+0080-U+009F) control ranges is dropped.
+pub fn sanitize_extracted_text(text: &str) -> String {
+    text.chars()
+        .filter(|&c| c == '\n' || c == '\r' || c == '\t' || !c.is_control())
+        .collect()
 }
 
 fn extract_plain_text(path: &Path) -> Result<String, String> {
@@ -181,5 +197,25 @@ mod tests {
     #[test]
     fn test_slide_ordering() {
         assert!(slide_number("ppt/slides/slide2.xml") < slide_number("ppt/slides/slide10.xml"));
+    }
+
+    /// Regression test for a real failure: a PDF with a custom glyph-encoded
+    /// font extracted to text containing embedded NUL bytes, which reached
+    /// the summarization prompt and made llama-cpp-2's `CString::new` fail
+    /// tokenization with "failed to tokenize prompt" — a content bug that
+    /// looked like a prompt-size issue because the error gave no detail.
+    #[test]
+    fn sanitize_extracted_text_strips_nul_and_control_bytes() {
+        let garbled = "UZH\nBlockchain\nCenter\n\0\0\0n \u{0}k\u{0}k\u{0}$\u{0}o \u{7f}text continues";
+        let cleaned = sanitize_extracted_text(garbled);
+        assert!(!cleaned.contains('\0'));
+        assert!(!cleaned.contains('\u{7f}'));
+        assert_eq!(cleaned, "UZH\nBlockchain\nCenter\nn kk$o text continues");
+    }
+
+    #[test]
+    fn sanitize_extracted_text_keeps_newlines_tabs_and_normal_text() {
+        let clean = "Hello\tworld\nSecond line\r\n";
+        assert_eq!(sanitize_extracted_text(clean), clean);
     }
 }
