@@ -40,6 +40,9 @@ module.exports = {
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
+    // lib holds class-name sources too (speaker-colors.ts) — without this,
+    // its arbitrary-value classes are never generated.
+    './src/lib/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
   	extend: {

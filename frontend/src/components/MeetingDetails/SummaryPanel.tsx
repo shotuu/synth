@@ -254,15 +254,25 @@ export function SummaryPanel({
 
   return (
     <div className="flex-1 min-w-0 flex flex-col bg-white overflow-hidden">
-      {/* Title area */}
-      <div className="p-4 border-b border-gray-200">
-        {/* <EditableTitle
+      {/* Title area — the session hero: the summary is the payoff of the
+          whole session (PROJECT_BRIEF.md §8), so its header carries the
+          title with real weight plus a quiet mono meta line. */}
+      <div className="px-6 pt-5 pb-3 border-b border-gray-200">
+        <EditableTitle
           title={meetingTitle}
           isEditing={isEditingTitle}
           onStartEditing={onStartEditTitle}
           onFinishEditing={onFinishEditTitle}
           onChange={onTitleChange}
-        /> */}
+        />
+        {meeting.created_at && (
+          <div className="font-mono text-[11px] text-gray-400 mt-0.5 mb-2 px-1 select-none">
+            {new Date(meeting.created_at).toLocaleString(undefined, {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            })}
+          </div>
+        )}
 
         {/* Button groups - only show when summary exists */}
         {aiSummary && !isSummaryLoading && (

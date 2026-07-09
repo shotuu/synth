@@ -223,6 +223,12 @@
     overflow: visible !important;
   }
 
+  /* Reading comfort for long-form content (PROJECT_BRIEF.md §8: generous
+     line-height wherever there's sustained reading — summaries and notes). */
+  .bn-editor .bn-block-content {
+    line-height: 1.7;
+  }
+
   /* Blend BlockNote's dark theme into Synth's surfaces. The @blocknote/shadcn
      flavor themes itself through its own scoped shadcn tokens (default dark is
      a blue slate, rgb(2 8 23), which clashes with Synth graphite) — re-point
