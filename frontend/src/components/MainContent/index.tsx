@@ -1,24 +1,21 @@
 'use client';
 
 import React from 'react';
-import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 
 interface MainContentProps {
   children: React.ReactNode;
 }
 
+/**
+ * Content pane beside the sidebar. The sidebar is a real flex sibling that
+ * owns its own width (resizable, hideable), so no margin bookkeeping here —
+ * `relative` anchors overlays (recording pill, status toasts) to the
+ * content area instead of the viewport.
+ */
 const MainContent: React.FC<MainContentProps> = ({ children }) => {
-  const { isCollapsed } = useSidebar();
-
   return (
-    <main 
-      className={`flex-1 transition-all duration-300 ${
-        isCollapsed ? 'ml-16' : 'ml-64'
-      }`}
-    >
-      <div className="pl-8">
-        {children}
-      </div>
+    <main className="relative flex-1 min-w-0 h-screen overflow-hidden">
+      {children}
     </main>
   );
 };

@@ -82,7 +82,13 @@ export const useSidebar = () => {
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [currentMeeting, setCurrentMeeting] = useState<CurrentMeeting | null>({ id: 'intro-call', title: '+ New Call' });
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  // Visible by default; hidden is a persisted preference (Phase 10's sidebar
+  // hides entirely rather than shrinking to an icon rail, so defaulting to
+  // hidden would leave a new user with no visible navigation).
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  useEffect(() => {
+    setIsCollapsed(localStorage.getItem('synth_sidebar_hidden') === '1');
+  }, []);
   const [meetings, setMeetings] = useState<CurrentMeeting[]>([]);
   const [sidebarItems, setSidebarItems] = useState<SidebarItem[]>([]);
   const [isMeetingActive, setIsMeetingActive] = useState(false);
@@ -186,7 +192,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       .map(buildFolderNode),
     {
       id: 'meetings',
-      title: 'Meeting Notes',
+      title: 'Unfiled',
       type: 'folder' as const,
       children: [
         ...meetings
@@ -198,7 +204,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
 
   const toggleCollapse = () => {
-    setIsCollapsed(!isCollapsed);
+    const next = !isCollapsed;
+    setIsCollapsed(next);
+    localStorage.setItem('synth_sidebar_hidden', next ? '1' : '0');
   };
 
   // Update current meeting when on home page
@@ -246,8 +254,8 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       setIsSearching(true);
 
 
-      const results = await invoke('api_search_transcripts', { query }) as TranscriptSearchResult[];
-      setSearchResults(results);
+      const results = await invoke('api_search_transcripts', { query }) as TranscriptSearchResult[] | null;
+      setSearchResults(results ?? []);
     } catch (error) {
       console.error('Error searching transcripts:', error);
       setSearchResults([]);

@@ -155,6 +155,13 @@ function fixture(cmd: string, args: InvokeArgs): unknown {
       return null;
     case 'api_save_meeting_notes':
       return true;
+    case 'api_search_transcripts': {
+      const q = ((args?.query as string) ?? '').toLowerCase();
+      if (!q) return [];
+      return MEETINGS.filter((m) => m.title.toLowerCase().includes(q) || q === 'kernel')
+        .slice(0, 5)
+        .map((m) => ({ id: m.id, title: m.title, matchContext: `…we never need the feature map explicitly, the ${q} handles it…` }));
+    }
     case 'api_list_templates':
       return [];
     // Version / platform probes

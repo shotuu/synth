@@ -11,8 +11,9 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import { Home, Folder as FolderIcon, CheckSquare, Settings, FileText, HardDrive } from 'lucide-react';
+import { Home, Folder as FolderIcon, CheckSquare, Settings, FileText, HardDrive, Mic } from 'lucide-react';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
+import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { CONTEXT_STYLES, ContextType } from '@/components/MeetingDetails/ContextTypeSelector';
 
 interface TranscriptSearchResult {
@@ -28,7 +29,8 @@ interface TranscriptSearchResult {
  */
 export function CommandPalette() {
   const router = useRouter();
-  const { meetings, folders } = useSidebar();
+  const { meetings, folders, handleRecordingToggle } = useSidebar();
+  const { isRecording } = useRecordingState();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [transcriptResults, setTranscriptResults] = useState<TranscriptSearchResult[]>([]);
@@ -88,6 +90,17 @@ export function CommandPalette() {
 
         {!query.trim() && (
           <CommandGroup heading="Go to">
+            {!isRecording && (
+              <CommandItem
+                onSelect={() => {
+                  setOpen(false);
+                  setQuery('');
+                  handleRecordingToggle();
+                }}
+              >
+                <Mic className="w-4 h-4 mr-2" /> New session — start recording
+              </CommandItem>
+            )}
             <CommandItem onSelect={() => go('/')}>
               <Home className="w-4 h-4 mr-2" /> Home
             </CommandItem>

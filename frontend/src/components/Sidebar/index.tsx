@@ -1,48 +1,53 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload, Folder as FolderIcon, FolderPlus, Check, HardDrive } from 'lucide-react';
-import { CONTEXT_STYLES, ContextType } from '@/components/MeetingDetails/ContextTypeSelector';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import {
+  Settings,
+  Home,
+  Mic,
+  Search,
+  X,
+  Upload,
+  FolderPlus,
+  Folder as FolderIcon,
+  Check,
+  HardDrive,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
 import { ConfirmationModal } from '../ConfirmationModel/confirmation-modal';
-import { ModelConfig } from '@/components/ModelSettingsModal';
-import { SettingTabs } from '../SettingTabs';
-import { TranscriptModelProps } from '@/components/TranscriptSettings';
 import Analytics from '@/lib/analytics';
 import { invoke } from '@tauri-apps/api/core';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { useImportDialog } from '@/contexts/ImportDialogContext';
 import { useConfig } from '@/contexts/ConfigContext';
-
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { VisuallyHidden } from "@/components/ui/visually-hidden"
-
-import { MessageToast } from '../MessageToast';
-import Logo from '../Logo';
+import { Dialog, DialogContent, DialogFooter, DialogTitle } from '@/components/ui/dialog';
+import { VisuallyHidden } from '@/components/ui/visually-hidden';
 import Info from '../Info';
-import { ComplianceNotification } from '../ComplianceNotification';
-import { Input } from '../ui/input';
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../ui/input-group';
+import { FolderTree, TreeItem } from './FolderTree';
 
-interface SidebarItem {
-  id: string;
-  title: string;
-  type: 'folder' | 'file';
-  children?: SidebarItem[];
-  contextType?: string;
-  icon?: string | null;
-  isRealFolder?: boolean;
+const WIDTH_STORAGE_KEY = 'synth_sidebar_width';
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 400;
+const DEFAULT_WIDTH = 260;
+
+function loadStoredWidth(): number {
+  if (typeof window === 'undefined') return DEFAULT_WIDTH;
+  const stored = Number(localStorage.getItem(WIDTH_STORAGE_KEY));
+  return Number.isFinite(stored) && stored >= MIN_WIDTH && stored <= MAX_WIDTH ? stored : DEFAULT_WIDTH;
 }
 
+/**
+ * App sidebar, rebuilt Obsidian-style for Phase 10: pinned search, one
+ * primary "New session" action, quiet nav, a folder tree with indent
+ * guides and hover actions, resizable width, and full-hide collapse.
+ * Data flow stays in SidebarProvider; this component is presentation +
+ * the folder/meeting mutations.
+ */
 const Sidebar: React.FC = () => {
   const router = useRouter();
   const pathname = usePathname();
@@ -58,70 +63,119 @@ const Sidebar: React.FC = () => {
     isSearching,
     meetings,
     setMeetings,
-    serverAddress,
-    folders,
     refetchFolders,
     refetchMeetings,
   } = useSidebar();
 
-  // Get recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
   const { openImportDialog } = useImportDialog();
   const { betaFeatures } = useConfig();
+
+  // ── Width / resize ─────────────────────────────────────────────────────
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  useEffect(() => setWidth(loadStoredWidth()), []);
+  const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const onResizeStart = (e: React.PointerEvent) => {
+    dragState.current = { startX: e.clientX, startWidth: width };
+    const onMove = (ev: PointerEvent) => {
+      if (!dragState.current) return;
+      const next = Math.min(
+        MAX_WIDTH,
+        Math.max(MIN_WIDTH, dragState.current.startWidth + (ev.clientX - dragState.current.startX))
+      );
+      setWidth(next);
+    };
+    const onUp = () => {
+      dragState.current = null;
+      setWidth((w) => {
+        localStorage.setItem(WIDTH_STORAGE_KEY, String(w));
+        return w;
+      });
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  // ── Tree expansion ─────────────────────────────────────────────────────
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['meetings']));
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [showModelSettings, setShowModelSettings] = useState(false);
-  const [modelConfig, setModelConfig] = useState<ModelConfig>({
-    provider: 'ollama',
-    model: '',
-    whisperModel: '',
-    apiKey: null,
-    ollamaEndpoint: null
-  });
-  const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
-    provider: 'parakeet',
-    model: 'parakeet-tdt-0.6b-v3-int8',
-  });
-  const [settingsSaveSuccess, setSettingsSaveSuccess] = useState<boolean | null>(null);
-
-  // State for edit modal
-  const [editModalState, setEditModalState] = useState<{ isOpen: boolean; meetingId: string | null; currentTitle: string }>({
-    isOpen: false,
-    meetingId: null,
-    currentTitle: ''
-  });
-  const [editingTitle, setEditingTitle] = useState<string>('');
-
-  // Ensure 'meetings' folder is always expanded
+  const seenFolderIdsRef = useRef<Set<string>>(new Set());
+  const { folders } = useSidebar();
   useEffect(() => {
-    if (!expandedFolders.has('meetings')) {
-      const newExpanded = new Set(expandedFolders);
-      newExpanded.add('meetings');
-      setExpandedFolders(newExpanded);
-    }
-  }, [expandedFolders]);
-
-  // Auto-expand newly created real folders the first time they're seen, so
-  // a fresh folder isn't invisible-by-default; collapsing afterward sticks.
-  const seenFolderIdsRef = React.useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const unseen = folders.filter(f => !seenFolderIdsRef.current.has(f.id));
+    // Auto-expand newly created folders once so they aren't invisible-by-default.
+    const unseen = folders.filter((f) => !seenFolderIdsRef.current.has(f.id));
     if (unseen.length === 0) return;
-    unseen.forEach(f => seenFolderIdsRef.current.add(f.id));
-    setExpandedFolders(prev => {
+    unseen.forEach((f) => seenFolderIdsRef.current.add(f.id));
+    setExpandedFolders((prev) => {
       const next = new Set(prev);
-      unseen.forEach(f => next.add(f.id));
+      unseen.forEach((f) => next.add(f.id));
       return next;
     });
   }, [folders]);
 
-  // Personal organization (Phase 5): folder creation, rename, and drag/drop
+  const toggleFolder = (folderId: string) => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  };
+
+  // ── Search ─────────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const handleSearchChange = useCallback(
+    async (value: string) => {
+      setSearchQuery(value);
+      if (!value.trim()) return;
+      await searchTranscripts(value);
+    },
+    [searchTranscripts]
+  );
+
+  const filteredItems = useMemo((): TreeItem[] => {
+    if (!searchQuery.trim()) return sidebarItems;
+    const q = searchQuery.toLowerCase();
+    const matchedIds = new Set(searchResults.map((r) => r.id));
+
+    const filterNode = (item: TreeItem): TreeItem | null => {
+      if (item.type === 'file') {
+        return matchedIds.has(item.id) || item.title.toLowerCase().includes(q) ? item : null;
+      }
+      const children = (item.children ?? [])
+        .map(filterNode)
+        .filter((c): c is TreeItem => c !== null);
+      // Keep folders that match by name, or that still contain matches.
+      if (children.length > 0 || item.title.toLowerCase().includes(q)) {
+        return { ...item, children };
+      }
+      return null;
+    };
+
+    return sidebarItems.map(filterNode).filter((i): i is TreeItem => i !== null);
+  }, [sidebarItems, searchQuery, searchResults]);
+
+  // While searching, expand everything that survived the filter.
+  const effectiveExpanded = useMemo(() => {
+    if (!searchQuery.trim()) return expandedFolders;
+    const all = new Set<string>();
+    const collect = (items: TreeItem[]) => {
+      items.forEach((i) => {
+        if (i.type === 'folder') {
+          all.add(i.id);
+          if (i.children) collect(i.children);
+        }
+      });
+    };
+    collect(filteredItems);
+    return all;
+  }, [searchQuery, expandedFolders, filteredItems]);
+
+  // ── Folder mutations ───────────────────────────────────────────────────
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
-  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
-  const [renamingFolderName, setRenamingFolderName] = useState('');
-  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
-  const [confirmDeleteFolderId, setConfirmDeleteFolderId] = useState<string | null>(null);
 
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
@@ -138,10 +192,7 @@ const Sidebar: React.FC = () => {
     }
   };
 
-  const commitFolderRename = async (folderId: string) => {
-    const name = renamingFolderName.trim();
-    setRenamingFolderId(null);
-    if (!name) return;
+  const handleRenameFolder = async (folderId: string, name: string) => {
     try {
       await invoke('api_rename_folder', { folderId, name });
       await refetchFolders();
@@ -152,7 +203,6 @@ const Sidebar: React.FC = () => {
   };
 
   const handleDeleteFolder = async (folderId: string) => {
-    setConfirmDeleteFolderId(null);
     try {
       await invoke('api_delete_folder', { folderId });
       await Promise.all([refetchFolders(), refetchMeetings()]);
@@ -163,29 +213,15 @@ const Sidebar: React.FC = () => {
     }
   };
 
-  // Native HTML5 drag-and-drop: meetings and folders carry a small JSON
-  // payload identifying what's being dragged; folder headers accept drops.
-  const handleItemDragStart = (e: React.DragEvent, item: SidebarItem) => {
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData(
-      'application/json',
-      JSON.stringify({ id: item.id, kind: item.type === 'folder' ? 'folder' : 'meeting' })
-    );
-  };
-
-  const handleFolderDrop = async (e: React.DragEvent, targetFolderId: string | null) => {
-    e.preventDefault();
-    setDragOverFolderId(null);
-    const raw = e.dataTransfer.getData('application/json');
+  const handleDropIntoFolder = async (raw: string, targetFolderId: string | null) => {
     if (!raw) return;
     try {
       const dragged = JSON.parse(raw) as { id: string; kind: 'folder' | 'meeting' };
+      if (dragged.id === targetFolderId) return;
       if (dragged.kind === 'meeting') {
-        if (dragged.id === targetFolderId) return;
         await invoke('api_set_meeting_folder', { meetingId: dragged.id, folderId: targetFolderId });
         await refetchMeetings();
       } else {
-        if (dragged.id === targetFolderId) return;
         await invoke('api_move_folder', {
           folderId: dragged.id,
           newParentId: targetFolderId,
@@ -199,965 +235,324 @@ const Sidebar: React.FC = () => {
     }
   };
 
-  // useEffect(() => {
-  //   if (settingsSaveSuccess !== null) {
-  //     const timer = setTimeout(() => {
-  //       setSettingsSaveSuccess(null);
-  //     }, 3000);
-  //   }
-  // }, [settingsSaveSuccess]);
-
-
-  const [deleteModalState, setDeleteModalState] = useState<{ isOpen: boolean; itemId: string | null }>({ isOpen: false, itemId: null });
-
-  useEffect(() => {
-    // Note: Don't set hardcoded defaults - let DB be the source of truth
-    const fetchModelConfig = async () => {
-      // Only make API call if serverAddress is loaded
-      if (!serverAddress) {
-        console.log('Waiting for server address to load before fetching model config');
-        return;
-      }
-
-      try {
-        const data = await invoke('api_get_model_config') as any;
-        if (data && data.provider !== null) {
-          // Fetch API key if not included and provider requires it
-          if (data.provider !== 'ollama' && !data.apiKey) {
-            try {
-              const apiKeyData = await invoke('api_get_api_key', {
-                provider: data.provider
-              }) as string;
-              data.apiKey = apiKeyData;
-            } catch (err) {
-              console.error('Failed to fetch API key:', err);
-            }
-          }
-          setModelConfig(data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch model config:', error);
-      }
-    };
-
-    fetchModelConfig();
-  }, [serverAddress]);
-
-
-  useEffect(() => {
-    // Note: Don't set hardcoded defaults - let DB be the source of truth
-    const fetchTranscriptSettings = async () => {
-      // Only make API call if serverAddress is loaded
-      if (!serverAddress) {
-        console.log('Waiting for server address to load before fetching transcript settings');
-        return;
-      }
-
-      try {
-        const data = await invoke('api_get_transcript_config') as any;
-        if (data && data.provider !== null) {
-          setTranscriptModelConfig(data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch transcript settings:', error);
-      }
-    };
-    fetchTranscriptSettings();
-  }, [serverAddress]);
-
-  // Listen for model config updates from other components
-  useEffect(() => {
-    const setupListener = async () => {
-      const { listen } = await import('@tauri-apps/api/event');
-      const unlisten = await listen<ModelConfig>('model-config-updated', (event) => {
-        console.log('Sidebar received model-config-updated event:', event.payload);
-        setModelConfig(event.payload);
-      });
-
-      return unlisten;
-    };
-
-    let cleanup: (() => void) | undefined;
-    setupListener().then(fn => cleanup = fn);
-
-    return () => {
-      cleanup?.();
-    };
-  }, []);
-
-
-
-  // Handle model config save
-  const handleSaveModelConfig = async (config: ModelConfig) => {
-    try {
-      await invoke('api_save_model_config', {
-        provider: config.provider,
-        model: config.model,
-        whisperModel: config.whisperModel,
-        apiKey: config.apiKey,
-        ollamaEndpoint: config.ollamaEndpoint,
-      });
-
-      setModelConfig(config);
-      console.log('Model config saved successfully');
-      setSettingsSaveSuccess(true);
-
-      // Emit event to sync other components
-      const { emit } = await import('@tauri-apps/api/event');
-      await emit('model-config-updated', config);
-
-      // Track settings change
-      await Analytics.trackSettingsChanged('model_config', `${config.provider}_${config.model}`);
-    } catch (error) {
-      console.error('Error saving model config:', error);
-      setSettingsSaveSuccess(false);
-    }
-  };
-
-  const handleSaveTranscriptConfig = async (updatedConfig?: TranscriptModelProps) => {
-    try {
-      const configToSave = updatedConfig || transcriptModelConfig;
-      const payload = {
-        provider: configToSave.provider,
-        model: configToSave.model,
-        apiKey: configToSave.apiKey ?? null
-      };
-      console.log('Saving transcript config with payload:', payload);
-
-      await invoke('api_save_transcript_config', {
-        provider: payload.provider,
-        model: payload.model,
-        apiKey: payload.apiKey,
-      });
-
-
-      setSettingsSaveSuccess(true);
-
-      // Track settings change
-      const transcriptConfigToSave = updatedConfig || transcriptModelConfig;
-      await Analytics.trackSettingsChanged('transcript_config', `${transcriptConfigToSave.provider}_${transcriptConfigToSave.model}`);
-    } catch (error) {
-      console.error('Failed to save transcript config:', error);
-      setSettingsSaveSuccess(false);
-    }
-  };
-
-  // Handle search input changes
-  const handleSearchChange = useCallback(async (value: string) => {
-    setSearchQuery(value);
-
-    // If search query is empty, just return to normal view
-    if (!value.trim()) return;
-
-    // Search through transcripts
-    await searchTranscripts(value);
-
-    // Make sure the meetings folder is expanded when searching
-    if (!expandedFolders.has('meetings')) {
-      const newExpanded = new Set(expandedFolders);
-      newExpanded.add('meetings');
-      setExpandedFolders(newExpanded);
-    }
-  }, [expandedFolders, searchTranscripts]);
-
-  // Combine search results with sidebar items
-  const filteredSidebarItems = useMemo(() => {
-    if (!searchQuery.trim()) return sidebarItems;
-
-    // If we have search results, highlight matching meetings
-    if (searchResults.length > 0) {
-      // Get the IDs of meetings that matched in transcripts
-      const matchedMeetingIds = new Set(searchResults.map(result => result.id));
-
-      return sidebarItems
-        .map(folder => {
-          // Always include folders in the results
-          if (folder.type === 'folder') {
-            if (!folder.children) return folder;
-
-            // Filter children based on search results or title match
-            const filteredChildren = folder.children.filter(item => {
-              // Include if the meeting ID is in our search results
-              if (matchedMeetingIds.has(item.id)) return true;
-
-              // Or if the title matches the search query
-              return item.title.toLowerCase().includes(searchQuery.toLowerCase());
-            });
-
-            return {
-              ...folder,
-              children: filteredChildren
-            };
-          }
-
-          // For non-folder items, check if they match the search
-          return (matchedMeetingIds.has(folder.id) ||
-            folder.title.toLowerCase().includes(searchQuery.toLowerCase()))
-            ? folder : undefined;
-        })
-        .filter((item): item is SidebarItem => item !== undefined); // Type-safe filter
-    } else {
-      // Fall back to title-only filtering if no transcript results
-      return sidebarItems
-        .map(folder => {
-          // Always include folders in the results
-          if (folder.type === 'folder') {
-            if (!folder.children) return folder;
-
-            // Filter children based on search query
-            const filteredChildren = folder.children.filter(item =>
-              item.title.toLowerCase().includes(searchQuery.toLowerCase())
-            );
-
-            return {
-              ...folder,
-              children: filteredChildren
-            };
-          }
-
-          // For non-folder items, check if they match the search
-          return folder.title.toLowerCase().includes(searchQuery.toLowerCase()) ? folder : undefined;
-        })
-        .filter((item): item is SidebarItem => item !== undefined); // Type-safe filter
-    }
-  }, [sidebarItems, searchQuery, searchResults, expandedFolders]);
-
+  // ── Meeting mutations (rename dialog + delete confirmation) ───────────
+  const [deleteModalState, setDeleteModalState] = useState<{ isOpen: boolean; itemId: string | null }>({
+    isOpen: false,
+    itemId: null,
+  });
+  const [editModalState, setEditModalState] = useState<{ isOpen: boolean; meetingId: string | null }>({
+    isOpen: false,
+    meetingId: null,
+  });
+  const [editingTitle, setEditingTitle] = useState('');
 
   const handleDelete = async (itemId: string) => {
-    console.log('Deleting item:', itemId);
-    const payload = {
-      meetingId: itemId
-    };
-
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('api_delete_meeting', {
-        meetingId: itemId,
-      });
-      console.log('Meeting deleted successfully');
-      const updatedMeetings = meetings.filter((m: CurrentMeeting) => m.id !== itemId);
-      setMeetings(updatedMeetings);
-
-      // Track meeting deletion
+      await invoke('api_delete_meeting', { meetingId: itemId });
+      setMeetings(meetings.filter((m: CurrentMeeting) => m.id !== itemId));
       Analytics.trackMeetingDeleted(itemId);
-
-      // Show success toast
-      toast.success("Meeting deleted successfully", {
-        description: "All associated data has been removed"
-      });
-
-      // If deleting the active meeting, navigate to home
+      toast.success('Session deleted', { description: 'All associated data has been removed' });
       if (currentMeeting?.id === itemId) {
         setCurrentMeeting({ id: 'intro-call', title: '+ New Call' });
         router.push('/');
       }
     } catch (error) {
       console.error('Failed to delete meeting:', error);
-      toast.error("Failed to delete meeting", {
-        description: error instanceof Error ? error.message : String(error)
+      toast.error('Failed to delete session', {
+        description: error instanceof Error ? error.message : String(error),
       });
     }
-  };
-
-  const handleDeleteConfirm = () => {
-    if (deleteModalState.itemId) {
-      handleDelete(deleteModalState.itemId);
-    }
-    setDeleteModalState({ isOpen: false, itemId: null });
-  };
-
-  // Handle modal editing of meeting names
-  const handleEditStart = (meetingId: string, currentTitle: string) => {
-    setEditModalState({
-      isOpen: true,
-      meetingId: meetingId,
-      currentTitle: currentTitle
-    });
-    setEditingTitle(currentTitle);
   };
 
   const handleEditConfirm = async () => {
     const newTitle = editingTitle.trim();
     const meetingId = editModalState.meetingId;
-
     if (!meetingId) return;
-
-    // Prevent empty titles
     if (!newTitle) {
-      toast.error("Meeting title cannot be empty");
+      toast.error('Session title cannot be empty');
       return;
     }
-
     try {
-      await invoke('api_save_meeting_title', {
-        meetingId: meetingId,
-        title: newTitle,
-      });
-
-      // Update local state
-      const updatedMeetings = meetings.map((m: CurrentMeeting) =>
-        m.id === meetingId ? { ...m, title: newTitle } : m
-      );
-      setMeetings(updatedMeetings);
-
-      // Update current meeting if it's the one being edited
+      await invoke('api_save_meeting_title', { meetingId, title: newTitle });
+      setMeetings(meetings.map((m: CurrentMeeting) => (m.id === meetingId ? { ...m, title: newTitle } : m)));
       if (currentMeeting?.id === meetingId) {
         setCurrentMeeting({ id: meetingId, title: newTitle });
       }
-
-      // Track the edit
       Analytics.trackButtonClick('edit_meeting_title', 'sidebar');
-
-      toast.success("Meeting title updated successfully");
-
-      // Close modal and reset state
-      setEditModalState({ isOpen: false, meetingId: null, currentTitle: '' });
+      setEditModalState({ isOpen: false, meetingId: null });
       setEditingTitle('');
     } catch (error) {
       console.error('Failed to update meeting title:', error);
-      toast.error("Failed to update meeting title", {
-        description: error instanceof Error ? error.message : String(error)
-      });
+      toast.error('Failed to update session title');
     }
   };
 
-  const handleEditCancel = () => {
-    setEditModalState({ isOpen: false, meetingId: null, currentTitle: '' });
-    setEditingTitle('');
+  // ── Navigation ─────────────────────────────────────────────────────────
+  const openItem = (item: TreeItem) => {
+    setCurrentMeeting({ id: item.id, title: item.title });
+    const basePath = item.id.startsWith('intro-call')
+      ? '/'
+      : item.id.includes('-')
+        ? `/meeting-details?id=${item.id}`
+        : `/notes/${item.id}`;
+    router.push(basePath);
   };
 
-  const toggleFolder = (folderId: string) => {
-    // Normal toggle behavior for all folders
-    const newExpanded = new Set(expandedFolders);
-    if (newExpanded.has(folderId)) {
-      newExpanded.delete(folderId);
-    } else {
-      newExpanded.add(folderId);
-    }
-    setExpandedFolders(newExpanded);
-  };
-
-  // Expose setShowModelSettings to window for Rust tray to call
+  // Tray integration: "open settings" now routes to the settings page (the
+  // in-sidebar settings dialog this used to open was removed long ago).
   useEffect(() => {
-    (window as any).openSettings = () => {
-      setShowModelSettings(true);
-    };
-
-    // Cleanup on unmount
+    (window as any).openSettings = () => router.push('/settings');
     return () => {
       delete (window as any).openSettings;
     };
-  }, []);
+  }, [router]);
 
-  const renderCollapsedIcons = () => {
-    if (!isCollapsed) return null;
+  const navItems = [
+    { label: 'Home', icon: Home, path: '/' },
+    { label: 'All Sessions', icon: FolderIcon, path: '/sessions' },
+    { label: 'Action Items', icon: Check, path: '/action-items' },
+    { label: 'Storage', icon: HardDrive, path: '/storage' },
+  ];
 
-    const isHomePage = pathname === '/';
-    const isMeetingPage = pathname?.includes('/meeting-details');
-    const isSettingsPage = pathname === '/settings';
-
+  // ── Collapsed: nothing but a floating reopen affordance ───────────────
+  if (isCollapsed) {
     return (
-      <TooltipProvider>
-        <div className="flex flex-col items-center space-y-4 mt-4">
-          <Logo isCollapsed={isCollapsed} />
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => router.push('/')}
-                className={`p-2 rounded-lg transition-colors duration-150 ${isHomePage ? 'bg-gray-100' : 'hover:bg-gray-100'
-                  }`}
-              >
-                <Home className="w-5 h-5 text-gray-600" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Home</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={handleRecordingToggle}
-                disabled={isRecording}
-                className={`p-2 ${isRecording ? 'bg-red-500 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'} rounded-full transition-colors duration-150 shadow-sm`}
-              >
-                {isRecording ? (
-                  <Square className="w-5 h-5 text-white" />
-                ) : (
-                  <Mic className="w-5 h-5 text-white" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>{isRecording ? "Recording in progress..." : "Start Recording"}</p>
-            </TooltipContent>
-          </Tooltip>
-
-          {betaFeatures.importAndRetranscribe && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => openImportDialog()}
-                  className="p-2 rounded-lg transition-colors duration-150 hover:bg-blue-100 bg-blue-50"
-                >
-                  <Upload className="w-5 h-5 text-blue-600" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>Import Audio</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => {
-                  if (isCollapsed) toggleCollapse();
-                  toggleFolder('meetings');
-                }}
-                className={`p-2 rounded-lg transition-colors duration-150 ${isMeetingPage ? 'bg-gray-100' : 'hover:bg-gray-100'
-                  }`}
-              >
-                <NotebookPen className="w-5 h-5 text-gray-600" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Meeting Notes</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => router.push('/settings')}
-                className={`p-2 rounded-lg transition-colors duration-150 ${isSettingsPage ? 'bg-gray-100' : 'hover:bg-gray-100'
-                  }`}
-              >
-                <Settings className="w-5 h-5 text-gray-600" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Settings</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Info isCollapsed={isCollapsed} />
-        </div>
-      </TooltipProvider>
-    );
-  };
-
-  // Find matching transcript snippet for a meeting item
-  const findMatchingSnippet = (itemId: string) => {
-    if (!searchQuery.trim() || !searchResults.length) return null;
-    return searchResults.find(result => result.id === itemId);
-  };
-
-  const renderItem = (item: SidebarItem, depth = 0) => {
-    const isExpanded = expandedFolders.has(item.id);
-    const paddingLeft = `${depth * 12 + 12}px`;
-    const isActive = item.type === 'file' && currentMeeting?.id === item.id;
-    const isMeetingItem = item.id.includes('-') && !item.id.startsWith('intro-call');
-
-    // Check if this item has a matching transcript snippet
-    const matchingResult = isMeetingItem ? findMatchingSnippet(item.id) : null;
-    const hasTranscriptMatch = !!matchingResult;
-
-    if (isCollapsed) return null;
-
-    const isRealFolder = item.type === 'folder' && item.isRealFolder;
-    const isRenamingThisFolder = renamingFolderId === item.id;
-    const isDragOver = dragOverFolderId === item.id;
-    const contextStyle = item.contextType && CONTEXT_STYLES[item.contextType as ContextType]
-      ? CONTEXT_STYLES[item.contextType as ContextType]
-      : null;
-
-    return (
-      <div key={item.id}>
-        <div
-          draggable={isRealFolder || isMeetingItem}
-          onDragStart={isRealFolder || isMeetingItem ? (e) => handleItemDragStart(e, item) : undefined}
-          onDragOver={item.type === 'folder' ? (e) => { e.preventDefault(); setDragOverFolderId(item.id); } : undefined}
-          onDragLeave={item.type === 'folder' ? () => setDragOverFolderId(prev => prev === item.id ? null : prev) : undefined}
-          onDrop={item.type === 'folder' ? (e) => handleFolderDrop(e, item.id === 'meetings' ? null : item.id) : undefined}
-          className={`flex items-center transition-all duration-150 group ${item.type === 'folder' && depth === 0
-            ? 'p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg'
-            : `px-3 py-2 my-0.5 rounded-md text-sm ${isActive ? 'bg-blue-100 text-blue-700 font-medium' :
-              hasTranscriptMatch ? 'bg-yellow-50' : 'hover:bg-gray-50'
-            } cursor-pointer`
-            } ${isDragOver ? 'ring-2 ring-blue-400 bg-blue-50' : ''}`}
-          style={item.type === 'folder' && depth === 0 ? {} : { paddingLeft }}
-          onClick={() => {
-            if (item.type === 'folder') {
-              toggleFolder(item.id);
-            } else {
-              setCurrentMeeting({ id: item.id, title: item.title });
-              const basePath = item.id.startsWith('intro-call') ? '/' :
-                item.id.includes('-') ? `/meeting-details?id=${item.id}` : `/notes/${item.id}`;
-              router.push(basePath);
-            }
-          }}
-        >
-          {item.type === 'folder' ? (
-            <>
-              {item.id === 'meetings' ? (
-                <Calendar className="w-4 h-4 mr-2" />
-              ) : item.icon ? (
-                <span className="mr-2">{item.icon}</span>
-              ) : (
-                <FolderIcon className="w-4 h-4 mr-2 text-gray-500" />
-              )}
-              {isRenamingThisFolder ? (
-                <input
-                  autoFocus
-                  value={renamingFolderName}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => setRenamingFolderName(e.target.value)}
-                  onBlur={() => commitFolderRename(item.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitFolderRename(item.id);
-                    if (e.key === 'Escape') setRenamingFolderId(null);
-                  }}
-                  className="font-medium text-sm border border-gray-300 rounded px-1 py-0.5 flex-1 min-w-0"
-                />
-              ) : (
-                <span className={depth === 0 ? "" : "font-medium"}>{item.title}</span>
-              )}
-              {isRealFolder && !isRenamingThisFolder && (
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ml-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRenamingFolderId(item.id);
-                      setRenamingFolderName(item.title);
-                    }}
-                    className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
-                    aria-label="Rename folder"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  {confirmDeleteFolderId === item.id ? (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteFolder(item.id); }}
-                      className="text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
-                      aria-label="Confirm delete folder"
-                      title="Click again to confirm"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteFolderId(item.id); }}
-                      className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
-                      aria-label="Delete folder"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              )}
-              <div className="ml-auto">
-                {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-gray-500" />
-                ) : (
-                  <ChevronRight className="w-4 h-4 text-gray-500" />
-                )}
-              </div>
-              {searchQuery && item.id === 'meetings' && isSearching && (
-                <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col w-full">
-              <div className="flex items-center w-full">
-                {isMeetingItem ? (
-                  <div className="relative flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-gray-100">
-                    <File className="w-3.5 h-3.5 text-gray-600" />
-                    {contextStyle && (
-                      <span
-                        className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1 ring-white ${contextStyle.dot}`}
-                        title={contextStyle.label}
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-blue-100">
-                    <Plus className="w-3.5 h-3.5 text-blue-600" />
-                  </div>
-                )}
-                <span className="flex-1 break-words">{item.title}</span>
-                {isMeetingItem && (
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEditStart(item.id, item.title);
-                      }}
-                      className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
-                      aria-label="Edit meeting title"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteModalState({ isOpen: true, itemId: item.id });
-                      }}
-                      className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
-                      aria-label="Delete meeting"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Show transcript match snippet if available */}
-              {hasTranscriptMatch && (
-                <div className="mt-1 ml-8 text-xs text-gray-500 bg-yellow-50 p-1.5 rounded border border-yellow-100 line-clamp-2">
-                  <span className="font-medium text-yellow-600">Match:</span> {matchingResult.matchContext}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        {item.type === 'folder' && isExpanded && item.children && (
-          <div className="ml-1">
-            {item.children.map(child => renderItem(child, depth + 1))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <div className="fixed top-0 left-0 h-screen z-40">
-      {/* Floating collapse button */}
       <button
         onClick={toggleCollapse}
-        className="absolute -right-6 top-20 z-50 p-1 bg-white hover:bg-gray-100 rounded-full shadow-lg border"
-        style={{ transform: 'translateX(50%)' }}
+        className="fixed left-2 top-3 z-50 p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+        title="Show sidebar"
       >
-        {isCollapsed ? (
-          <ChevronRightCircle className="w-6 h-6" />
-        ) : (
-          <ChevronLeftCircle className="w-6 h-6" />
-        )}
+        <PanelLeftOpen className="w-4 h-4" />
       </button>
+    );
+  }
 
-      <div
-        className={`h-screen bg-white border-r shadow-sm flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
-          }`}
-      >
-        {/*  Header with traffic light spacing */}
-        <div className="flex-shrink-0 h-22 flex items-center">
-
-          {/* Title container */}
-
-
-
-          <div className="flex-1">
-            {!isCollapsed && (
-              <div className="p-3">
-                <Logo isCollapsed={isCollapsed} />
-
-                <div className="relative mb-1">
-                  <InputGroup >
-                    <InputGroupInput placeholder='Search meeting content...' value={searchQuery}
-                      onChange={(e) => handleSearchChange(e.target.value)}
-                    />
-                    <InputGroupAddon>
-                      <SearchIcon />
-                    </InputGroupAddon>
-                    {searchQuery &&
-                      <InputGroupAddon align={'inline-end'}>
-                        <InputGroupButton
-                          onClick={() => handleSearchChange('')}
-                        >
-                          <X />
-                        </InputGroupButton>
-                      </InputGroupAddon>
-                    }
-                  </InputGroup>
-                </div>
-              </div>
-            )}
-          </div>
+  return (
+    <div className="relative h-screen shrink-0 flex" style={{ width }}>
+      <div className="flex-1 min-w-0 h-full bg-white/50 border-r border-gray-200 flex flex-col">
+        {/* Header: wordmark + hide control */}
+        <div className="titlebar shrink-0 flex items-center justify-between pl-4 pr-2 pt-3 pb-1">
+          <span className="text-sm font-semibold tracking-tight text-gray-900 select-none">Synth</span>
+          <button
+            onClick={toggleCollapse}
+            className="no-drag p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+            title="Hide sidebar"
+          >
+            <PanelLeftClose className="w-4 h-4" />
+          </button>
         </div>
 
-        {/* Main content - scrollable area */}
-        <div className="flex-1 flex flex-col min-h-0">
-          {/* Fixed navigation items */}
-          <div className="flex-shrink-0">
-            {!isCollapsed && (
-              <div
-                onClick={() => router.push('/')}
-                className="p-3  text-lg font-semibold items-center hover:bg-gray-100 h-10   flex mx-3 mt-3 rounded-lg cursor-pointer"
-              >
-                <Home className="w-4 h-4 mr-2" />
-                <span>Home</span>
-              </div>
-            )}
-            {!isCollapsed && (
-              <div className="flex mx-3 mt-1 gap-1">
-                <button
-                  onClick={() => router.push('/sessions')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md transition-colors ${pathname === '/sessions' ? 'bg-gray-100 text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
-                >
-                  <FolderIcon className="w-3.5 h-3.5" /> All Sessions
-                </button>
-                <button
-                  onClick={() => router.push('/action-items')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md transition-colors ${pathname === '/action-items' ? 'bg-gray-100 text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
-                >
-                  <Check className="w-3.5 h-3.5" /> Action Items
-                </button>
-              </div>
-            )}
-            {!isCollapsed && (
-              <div className="flex mx-3 mt-1 gap-1">
-                <button
-                  onClick={() => router.push('/storage')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md transition-colors ${pathname === '/storage' ? 'bg-gray-100 text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
-                >
-                  <HardDrive className="w-3.5 h-3.5" /> Storage
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Content area */}
-          <div className="flex-1 flex flex-col min-h-0">
-            {renderCollapsedIcons()}
-            {/* Top-level folders + Meeting Notes header - fixed */}
-            {!isCollapsed && (
-              <div className="flex-shrink-0">
-                {filteredSidebarItems.filter(item => item.type === 'folder').map(item => {
-                  const isRealFolder = item.isRealFolder;
-                  const isExpanded = expandedFolders.has(item.id);
-                  const isRenamingThisFolder = renamingFolderId === item.id;
-                  const isDragOver = dragOverFolderId === item.id;
-                  return (
-                    <div key={item.id}>
-                      <div
-                        draggable={isRealFolder}
-                        onDragStart={isRealFolder ? (e) => handleItemDragStart(e, item) : undefined}
-                        onDragOver={(e) => { e.preventDefault(); setDragOverFolderId(item.id); }}
-                        onDragLeave={() => setDragOverFolderId(prev => prev === item.id ? null : prev)}
-                        onDrop={(e) => handleFolderDrop(e, item.id === 'meetings' ? null : item.id)}
-                        onClick={() => toggleFolder(item.id)}
-                        className={`group flex items-center transition-all duration-150 p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg cursor-pointer hover:bg-gray-50 ${isDragOver ? 'ring-2 ring-blue-400 bg-blue-50' : ''}`}
-                      >
-                        {item.id === 'meetings' ? (
-                          <NotebookPen className="w-4 h-4 mr-2 text-gray-600" />
-                        ) : item.icon ? (
-                          <span className="mr-2">{item.icon}</span>
-                        ) : (
-                          <FolderIcon className="w-4 h-4 mr-2 text-gray-500" />
-                        )}
-                        {isRenamingThisFolder ? (
-                          <input
-                            autoFocus
-                            value={renamingFolderName}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => setRenamingFolderName(e.target.value)}
-                            onBlur={() => commitFolderRename(item.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') commitFolderRename(item.id);
-                              if (e.key === 'Escape') setRenamingFolderId(null);
-                            }}
-                            className="text-sm font-medium border border-gray-300 rounded px-1 py-0.5 flex-1 min-w-0"
-                          />
-                        ) : (
-                          <span className="text-gray-700 truncate">{item.title}</span>
-                        )}
-                        {isRealFolder && !isRenamingThisFolder && (
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ml-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setRenamingFolderId(item.id);
-                                setRenamingFolderName(item.title);
-                              }}
-                              className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
-                              aria-label="Rename folder"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            {confirmDeleteFolderId === item.id ? (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleDeleteFolder(item.id); }}
-                                className="text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
-                                aria-label="Confirm delete folder"
-                                title="Click again to confirm"
-                              >
-                                <Check className="w-3.5 h-3.5" />
-                              </button>
-                            ) : (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteFolderId(item.id); }}
-                                className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
-                                aria-label="Delete folder"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        )}
-                        <div className="ml-auto flex-shrink-0">
-                          {isExpanded ? (
-                            <ChevronDown className="w-4 h-4 text-gray-500" />
-                          ) : (
-                            <ChevronRight className="w-4 h-4 text-gray-500" />
-                          )}
-                        </div>
-                        {searchQuery && item.id === 'meetings' && isSearching && (
-                          <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* New folder */}
-                {isCreatingFolder ? (
-                  <div className="flex items-center p-3 mx-3 mt-3 h-10 rounded-lg border border-dashed border-gray-300">
-                    <FolderIcon className="w-4 h-4 mr-2 text-gray-400" />
-                    <input
-                      autoFocus
-                      value={newFolderName}
-                      placeholder="Folder name"
-                      onChange={(e) => setNewFolderName(e.target.value)}
-                      onBlur={handleCreateFolder}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleCreateFolder();
-                        if (e.key === 'Escape') { setIsCreatingFolder(false); setNewFolderName(''); }
-                      }}
-                      className="text-sm flex-1 min-w-0 outline-none bg-transparent"
-                    />
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setIsCreatingFolder(true)}
-                    className="flex items-center w-[calc(100%-24px)] p-3 mx-3 mt-3 h-10 rounded-lg text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-                  >
-                    <FolderPlus className="w-4 h-4 mr-2" />
-                    New folder
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Scrollable meeting items */}
-            {!isCollapsed && (
-              <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-                {filteredSidebarItems
-                  .filter(item => item.type === 'folder' && expandedFolders.has(item.id) && item.children)
-                  .map(item => (
-                    <div key={`${item.id}-children`} className="mx-3">
-                      {item.children!.map(child => renderItem(child, 1))}
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer */}
-        {!isCollapsed && (
-
-          <div className="flex-shrink-0 p-2 border-t border-gray-100">
-            <button
-              onClick={handleRecordingToggle}
-              disabled={isRecording}
-              className={`w-full flex items-center justify-center px-3 py-2 text-sm font-medium text-white ${isRecording ? 'bg-red-300 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'} rounded-lg transition-colors shadow-sm`}
-            >
-              {isRecording ? (
-                <>
-                  <Square className="w-4 h-4 mr-2" />
-                  <span>Recording in progress...</span>
-                </>
-              ) : (
-                <>
-                  <Mic className="w-4 h-4 mr-2" />
-                  <span>Start Recording</span>
-                </>
-              )}
-            </button>
-
-            {betaFeatures.importAndRetranscribe && (
+        {/* Search — pinned at top */}
+        <div className="shrink-0 px-2.5 pt-1.5">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+            <input
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search sessions…"
+              className="w-full h-7 pl-7 pr-7 text-[13px] rounded-md bg-gray-100 border border-transparent
+                         focus:border-blue-300 focus:bg-white focus:outline-none placeholder:text-gray-400 transition-colors"
+            />
+            {searchQuery && (
               <button
-                onClick={() => openImportDialog()}
-                className="w-full flex items-center justify-center px-3 py-2 mt-1 text-sm font-medium text-gray-700 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors shadow-sm"
+                onClick={() => handleSearchChange('')}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-gray-400 hover:text-gray-600"
               >
-                <Upload className="w-4 h-4 mr-2" />
-                <span>Import Audio</span>
+                <X className="w-3 h-3" />
               </button>
             )}
-
-            <button
-              onClick={() => router.push('/settings')}
-              className="w-full flex items-center justify-center px-3 py-1.5 mt-1 mb-1 text-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors shadow-sm"
-            >
-              <Settings className="w-4 h-4 mr-2" />
-              <span>Settings</span>
-            </button>
-            <Info isCollapsed={isCollapsed} />
-            <div className="w-full flex items-center justify-center px-3 py-1 text-xs text-gray-400">
-              v0.4.0
-            </div>
           </div>
-        )}
+        </div>
+
+        {/* New session — the one primary action */}
+        <div className="shrink-0 px-2.5 pt-2">
+          <button
+            onClick={handleRecordingToggle}
+            disabled={isRecording}
+            className={`w-full h-7 flex items-center justify-center gap-1.5 text-[13px] font-medium rounded-md transition-colors
+              ${
+                isRecording
+                  ? 'bg-red-50 text-red-500 cursor-default'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+          >
+            {isRecording ? (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                Recording…
+              </>
+            ) : (
+              <>
+                <Mic className="w-3.5 h-3.5" />
+                New session
+              </>
+            )}
+          </button>
+          {betaFeatures.importAndRetranscribe && (
+            <button
+              onClick={() => openImportDialog()}
+              className="w-full h-7 mt-1 flex items-center justify-center gap-1.5 text-[13px] rounded-md
+                         text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Import audio
+            </button>
+          )}
+        </div>
+
+        {/* Nav */}
+        <nav className="shrink-0 px-2.5 pt-3 space-y-px">
+          {navItems.map(({ label, icon: Icon, path }) => {
+            const active = pathname === path;
+            return (
+              <button
+                key={path}
+                onClick={() => router.push(path)}
+                className={`w-full flex items-center gap-2 h-7 px-1.5 rounded-r text-[13px] border-l-2 transition-colors
+                  ${
+                    active
+                      ? 'border-blue-500 bg-blue-50 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:bg-gray-100 hover:text-gray-800'
+                  }`}
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                {label}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Folder tree */}
+        <div className="flex-1 min-h-0 flex flex-col pt-3">
+          <div className="shrink-0 flex items-center justify-between px-4 pb-1 group">
+            <span className="text-[11px] uppercase tracking-wider text-gray-400 select-none">
+              Folders
+              {isSearching && <span className="ml-1.5 normal-case tracking-normal text-blue-500 animate-pulse">searching…</span>}
+            </span>
+            <button
+              onClick={() => setIsCreatingFolder(true)}
+              className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-gray-400 hover:text-gray-700 transition-opacity"
+              title="New folder"
+            >
+              <FolderPlus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {isCreatingFolder && (
+            <div className="shrink-0 flex items-center gap-1.5 h-7 mx-2.5 px-1.5 rounded border border-dashed border-gray-300">
+              <FolderIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <input
+                autoFocus
+                value={newFolderName}
+                placeholder="Folder name"
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onBlur={handleCreateFolder}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateFolder();
+                  if (e.key === 'Escape') {
+                    setIsCreatingFolder(false);
+                    setNewFolderName('');
+                  }
+                }}
+                className="flex-1 min-w-0 text-[13px] bg-transparent outline-none"
+              />
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0 px-2.5 pb-4">
+            <FolderTree
+              items={filteredItems}
+              expandedFolders={effectiveExpanded}
+              onToggleFolder={toggleFolder}
+              activeMeetingId={currentMeeting?.id}
+              onOpenItem={openItem}
+              transcriptMatches={searchQuery.trim() ? searchResults : undefined}
+              onRenameFolder={handleRenameFolder}
+              onDeleteFolder={handleDeleteFolder}
+              onRenameMeeting={(meetingId, currentTitle) => {
+                setEditModalState({ isOpen: true, meetingId });
+                setEditingTitle(currentTitle);
+              }}
+              onDeleteMeeting={(meetingId) => setDeleteModalState({ isOpen: true, itemId: meetingId })}
+              onDropIntoFolder={handleDropIntoFolder}
+            />
+          </div>
+        </div>
+
+        {/* Footer — quiet */}
+        <div className="shrink-0 border-t border-gray-200 px-2.5 py-1.5 flex items-center justify-between">
+          <button
+            onClick={() => router.push('/settings')}
+            className={`flex items-center gap-1.5 h-6 px-1.5 rounded text-xs transition-colors ${
+              pathname === '/settings' ? 'text-gray-800 bg-gray-100' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            <Settings className="w-3.5 h-3.5" />
+            Settings
+          </button>
+          <div className="flex items-center gap-1 text-gray-400">
+            <Info isCollapsed={false} />
+            <span className="text-[10px] font-mono select-none">v0.4.0</span>
+          </div>
+        </div>
       </div>
 
-      {/* Confirmation Modal for Delete */}
+      {/* Resize handle */}
+      <div
+        onPointerDown={onResizeStart}
+        className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-blue-500/40 active:bg-blue-500/60 transition-colors"
+        title="Drag to resize"
+      />
+
+      {/* Delete confirmation */}
       <ConfirmationModal
         isOpen={deleteModalState.isOpen}
-        text="Are you sure you want to delete this meeting? This action cannot be undone."
-        onConfirm={handleDeleteConfirm}
+        text="Are you sure you want to delete this session? This action cannot be undone."
+        onConfirm={() => {
+          if (deleteModalState.itemId) handleDelete(deleteModalState.itemId);
+          setDeleteModalState({ isOpen: false, itemId: null });
+        }}
         onCancel={() => setDeleteModalState({ isOpen: false, itemId: null })}
       />
 
-      {/* Edit Meeting Title Modal */}
-      <Dialog open={editModalState.isOpen} onOpenChange={(open) => {
-        if (!open) handleEditCancel();
-      }}>
+      {/* Rename session dialog */}
+      <Dialog
+        open={editModalState.isOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditModalState({ isOpen: false, meetingId: null });
+            setEditingTitle('');
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[425px]">
           <VisuallyHidden>
-            <DialogTitle>Edit Meeting Title</DialogTitle>
+            <DialogTitle>Rename session</DialogTitle>
           </VisuallyHidden>
-          <div className="py-4">
-            <h3 className="text-lg font-semibold mb-4">Edit Meeting Title</h3>
-            <div className="space-y-4">
-              <div>
-                <label htmlFor="meeting-title" className="block text-sm font-medium text-gray-700 mb-2">
-                  Meeting Title
-                </label>
-                <input
-                  id="meeting-title"
-                  type="text"
-                  value={editingTitle}
-                  onChange={(e) => setEditingTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handleEditConfirm();
-                    } else if (e.key === 'Escape') {
-                      handleEditCancel();
-                    }
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter meeting title"
-                  autoFocus
-                />
-              </div>
-            </div>
+          <div className="py-2">
+            <h3 className="text-lg font-semibold mb-4">Rename session</h3>
+            <input
+              type="text"
+              value={editingTitle}
+              onChange={(e) => setEditingTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleEditConfirm();
+                if (e.key === 'Escape') {
+                  setEditModalState({ isOpen: false, meetingId: null });
+                  setEditingTitle('');
+                }
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Session title"
+              autoFocus
+            />
           </div>
           <DialogFooter>
             <button
-              onClick={handleEditCancel}
+              onClick={() => {
+                setEditModalState({ isOpen: false, meetingId: null });
+                setEditingTitle('');
+              }}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
             >
               Cancel
