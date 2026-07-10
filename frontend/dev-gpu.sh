@@ -81,8 +81,16 @@ else
 fi
 
 # Build llama-helper
+#
+# Always --release, even in an otherwise-dev workflow: this sidecar does
+# real llama.cpp/ONNX-style tensor math, and a debug build of that kind of
+# numeric code runs roughly an order of magnitude slower than release (no
+# LTO, no vectorization, overflow checks on every op) for zero debugging
+# benefit in normal use -- nobody steps through llama.cpp's internals here.
+# Confirmed in practice: a local summary generation that should take under
+# a minute took 12+ minutes and climbing against the debug build.
 echo ""
-echo -e "${BLUE}🦙 Building llama-helper sidecar (debug)...${NC}"
+echo -e "${BLUE}🦙 Building llama-helper sidecar (release)...${NC}"
 
 HELPER_DIR="llama-helper"
 if [ ! -d "$HELPER_DIR" ]; then
@@ -109,8 +117,8 @@ if [ -n "$TAURI_GPU_FEATURE" ] && [ "$TAURI_GPU_FEATURE" != "none" ]; then
     HELPER_FEATURES="--features $LLAMA_FEATURE"
 fi
 
-echo -e "   Building in $HELPER_DIR with features: ${HELPER_FEATURES:-none}"
-(cd "$HELPER_DIR" && cargo build $HELPER_FEATURES)
+echo -e "   Building in $HELPER_DIR (release) with features: ${HELPER_FEATURES:-none}"
+(cd "$HELPER_DIR" && cargo build --release $HELPER_FEATURES)
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Failed to build llama-helper${NC}"
@@ -143,12 +151,12 @@ fi
 # The binary is in the workspace target directory, which is one level up from frontend
 # if we are in frontend dir.
 WORKSPACE_ROOT="$FRONTEND_DIR/.."
-SRC_PATH="$WORKSPACE_ROOT/target/debug/$BASE_BINARY"
+SRC_PATH="$WORKSPACE_ROOT/target/release/$BASE_BINARY"
 DEST_PATH="$BINARIES_DIR/$SIDECAR_BINARY"
 
 if [ ! -f "$SRC_PATH" ]; then
     # Fallback: check if we are running from root and target is in root
-    SRC_PATH="target/debug/$BASE_BINARY"
+    SRC_PATH="target/release/$BASE_BINARY"
 fi
 
 if [ -f "$SRC_PATH" ]; then
@@ -156,9 +164,9 @@ if [ -f "$SRC_PATH" ]; then
     echo -e "${GREEN}✅ Copied binary to $DEST_PATH${NC}"
 else
     echo -e "${RED}❌ Binary not found at $SRC_PATH${NC}"
-    # List contents of target/debug to help debugging
-    echo -e "${YELLOW}Contents of target/debug:${NC}"
-    ls -la "$WORKSPACE_ROOT/target/debug/" || ls -la "target/debug/"
+    # List contents of target/release to help debugging
+    echo -e "${YELLOW}Contents of target/release:${NC}"
+    ls -la "$WORKSPACE_ROOT/target/release/" || ls -la "target/release/"
     exit 1
 fi
 
