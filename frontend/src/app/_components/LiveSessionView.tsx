@@ -109,15 +109,15 @@ export function LiveSessionView({
 
   return (
     <div className="flex flex-col flex-1 min-w-0 h-screen bg-gray-50">
-      {/* Session header: what's being recorded, for how long */}
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-200 shrink-0">
-        <button
-          onClick={toggleTranscript}
-          className="text-gray-400 hover:text-gray-700 transition-colors"
-          title={transcriptCollapsed ? 'Show live transcript' : 'Hide transcript — write distraction-free'}
-        >
-          {transcriptCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
-        </button>
+      {/* Session header: what's being recorded, for how long. Left-padded
+          (pl-12) to clear the floating sidebar-reopen button when the
+          sidebar is hidden — same fix as meeting-details/page-content.tsx.
+          The transcript-panel toggle lives on the right, grouped with the
+          other session controls, so it never sits next to the sidebar
+          button (both are near-identical panel-chevron icons — adjacent,
+          they read as a confusing double control rather than two distinct
+          things). */}
+      <div className="flex items-center gap-3 pl-12 pr-5 py-3 border-b border-gray-200 shrink-0">
         <h1 className="text-sm font-semibold text-gray-900 truncate flex-1">{meetingTitle}</h1>
         <div className="flex items-center gap-2 shrink-0">
           <span
@@ -127,6 +127,14 @@ export function LiveSessionView({
             {isPaused ? 'Paused' : 'Recording'} · {formatElapsed(elapsed)}
           </span>
         </div>
+        <div className="w-px h-4 bg-gray-200 shrink-0" />
+        <button
+          onClick={toggleTranscript}
+          className="text-gray-400 hover:text-gray-700 transition-colors shrink-0"
+          title={transcriptCollapsed ? 'Show live transcript' : 'Hide transcript — write distraction-free'}
+        >
+          {transcriptCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+        </button>
       </div>
 
       <PanelGroup direction="horizontal" autoSaveId="synth-live-session" className="flex-1 min-h-0">
@@ -142,11 +150,19 @@ export function LiveSessionView({
           onExpand={() => setTranscriptCollapsed(false)}
           className="flex flex-col min-w-0"
         >
-          <div className="flex-1 overflow-y-auto custom-scrollbar bg-white/50">
-            <div className="px-5 pt-4 pb-24">
-              <div className="text-[11px] uppercase tracking-wider text-gray-400 mb-2 select-none">
-                Live transcript
-              </div>
+          {/* flex-col + min-h-0 gives VirtualizedTranscriptView's own
+              internal `h-full overflow-y-auto` div a real bounded height to
+              scroll within. It used to be nested inside a second
+              overflow-y-auto div here — that outer div silently became the
+              one actually scrolling (h-full on the inner one had nothing to
+              resolve against), so useAutoScroll's scrollRef pointed at an
+              element with no real overflow and new transcript text never
+              auto-scrolled into view. */}
+          <div className="flex flex-col h-full bg-white/50">
+            <div className="text-[11px] uppercase tracking-wider text-gray-400 px-5 pt-4 pb-2 select-none shrink-0">
+              Live transcript
+            </div>
+            <div className="flex-1 min-h-0">
               <VirtualizedTranscriptView
                 segments={segments}
                 isRecording={isRecording}

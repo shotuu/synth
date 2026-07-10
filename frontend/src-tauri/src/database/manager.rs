@@ -34,6 +34,8 @@ impl DatabaseManager {
 
         sqlx::migrate!("./migrations").run(&pool).await?;
 
+        sanitize_leaked_ai_title_clauses(&pool).await?;
+
         Ok(DatabaseManager { pool })
     }
 
@@ -204,5 +206,123 @@ impl DatabaseManager {
         log::info!("Database connection pool closed");
 
         Ok(())
+    }
+}
+
+/// One-time cleanup for meetings whose AI-generated title leaked the old
+/// prompt's "AI-Generated Title" clause (fixed 2026-07 — see
+/// summary::processor::strip_ai_generated_title_clause) into the saved
+/// title before the prompt itself was fixed. Runs on every startup after
+/// migrations; naturally idempotent since already-clean titles never match
+/// the pattern, so no "has this run" flag is needed.
+async fn sanitize_leaked_ai_title_clauses(pool: &SqlitePool) -> Result<()> {
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT id, title FROM meetings")
+        .fetch_all(pool)
+        .await?;
+
+    for (id, title) in rows {
+        let cleaned = crate::summary::processor::strip_ai_generated_title_clause(&title);
+        if cleaned == title {
+            continue;
+        }
+
+        let mut transaction = pool.begin().await?;
+        sqlx::query("UPDATE meetings SET title = ? WHERE id = ?")
+            .bind(&cleaned)
+            .bind(&id)
+            .execute(&mut *transaction)
+            .await?;
+        // Kept in sync with meetings.title by every other title-update path
+        // (see MeetingsRepository::update_meeting_name) — do the same here.
+        sqlx::query("UPDATE transcript_chunks SET meeting_name = ? WHERE meeting_id = ?")
+            .bind(&cleaned)
+            .bind(&id)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+
+        log::info!(
+            "Cleaned leaked AI-title clause from meeting {}: '{}' -> '{}'",
+            id,
+            title,
+            cleaned
+        );
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn test_pool() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    async fn insert_meeting(pool: &SqlitePool, id: &str, title: &str) {
+        sqlx::query(
+            "INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))",
+        )
+        .bind(id)
+        .bind(title)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO transcript_chunks (meeting_id, meeting_name, transcript_text, model, model_name, created_at)
+             VALUES (?, ?, 'hello', 'ollama', 'llama3.1', datetime('now'))",
+        )
+        .bind(id)
+        .bind(title)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn sanitize_cleans_leaked_clause_from_both_tables() {
+        let pool = test_pool().await;
+        insert_meeting(&pool, "m1", "AI-Generated Title: Sprint Planning").await;
+        insert_meeting(&pool, "m2", "Design Review: Export Pipeline").await; // already clean
+
+        sanitize_leaked_ai_title_clauses(&pool).await.unwrap();
+
+        let (t1,): (String,) = sqlx::query_as("SELECT title FROM meetings WHERE id = 'm1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(t1, "Sprint Planning");
+
+        let (n1,): (String,) =
+            sqlx::query_as("SELECT meeting_name FROM transcript_chunks WHERE meeting_id = 'm1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(n1, "Sprint Planning");
+
+        let (t2,): (String,) = sqlx::query_as("SELECT title FROM meetings WHERE id = 'm2'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(t2, "Design Review: Export Pipeline", "clean titles must be left untouched");
+    }
+
+    #[tokio::test]
+    async fn sanitize_is_a_no_op_on_second_run() {
+        let pool = test_pool().await;
+        insert_meeting(&pool, "m1", "AI Generated Title - Q3 Roadmap").await;
+
+        sanitize_leaked_ai_title_clauses(&pool).await.unwrap();
+        sanitize_leaked_ai_title_clauses(&pool).await.unwrap(); // idempotent re-run
+
+        let (t1,): (String,) = sqlx::query_as("SELECT title FROM meetings WHERE id = 'm1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(t1, "Q3 Roadmap");
     }
 }

@@ -27,6 +27,7 @@ whisper-server-package/
 
 # next.js
 /.next/
+/.next-verify/
 /out/
 
 # production

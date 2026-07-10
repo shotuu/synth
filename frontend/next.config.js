@@ -7,6 +7,13 @@ const resolveFromTiptapPm = (pkg) =>
 const nextConfig = {
   reactStrictMode: false, // Disabled for BlockNote compatibility
   output: 'export',
+  // Lets a second, isolated `next dev` (e.g. .claude/launch.json's
+  // synth-web-verify, used to preview changes without disturbing the real
+  // `pnpm run tauri:dev` session) write to its own build cache instead of
+  // fighting over ./.next with whichever dev server is already running —
+  // two Next processes sharing one .next directory corrupts its chunk
+  // manifest and throws ChunkLoadError in the *other*, unrelated server.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   images: {
     unoptimized: true,
   },

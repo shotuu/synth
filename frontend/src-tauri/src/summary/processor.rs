@@ -12,6 +12,15 @@ static THINKING_TAG_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?s)<think(?:ing)?>.*?</think(?:ing)?>").unwrap()
 });
 
+// Some models echo the old prompt's bracketed placeholder (or paraphrase it)
+// instead of following the "just the title" instruction, e.g.
+// `# [AI-Generated Title]` or `# AI-Generated Title: Sprint Planning`.
+// Strip that clause defensively even though the prompt itself was fixed, so
+// weaker/local models that don't follow instructions well don't leak it.
+static AI_TITLE_PREFIX_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)^\[?ai[- ]generated\s+title\]?\s*[:\-\u{2013}\u{2014}]?\s*").unwrap()
+});
+
 const ENGLISH_BASE_SUMMARY_INSTRUCTION: &str =
     "**Write the summary/report in English regardless of transcript language; non-English prose is invalid.**";
 
@@ -288,10 +297,22 @@ pub fn clean_llm_markdown_output(markdown: &str) -> String {
 /// # Returns
 /// Meeting name if found, None otherwise
 pub fn extract_meeting_name_from_markdown(markdown: &str) -> Option<String> {
-    markdown
+    let raw = markdown
         .lines()
         .find(|line| line.starts_with("# "))
-        .map(|line| line.trim_start_matches("# ").trim().to_string())
+        .map(|line| line.trim_start_matches("# ").trim().to_string())?;
+
+    Some(strip_ai_generated_title_clause(&raw))
+}
+
+/// Removes a leaked "AI-Generated Title" clause (or paraphrase) from a
+/// title, falling back to the original text if stripping it would leave
+/// nothing. Shared by extract_meeting_name_from_markdown (new summaries)
+/// and database::manager's startup pass that cleans up titles saved before
+/// this prompt was fixed to stop producing the clause in the first place.
+pub fn strip_ai_generated_title_clause(title: &str) -> String {
+    let cleaned = AI_TITLE_PREFIX_REGEX.replace(title, "").trim().to_string();
+    if cleaned.is_empty() { title.trim().to_string() } else { cleaned }
 }
 
 /// Generates a complete meeting summary with conditional chunking strategy
@@ -768,6 +789,32 @@ mod tests {
         assert_eq!(
             resolve_final_language_action(Some("fr"), Some("ja")),
             FinalLanguageAction::Translate("French")
+        );
+    }
+
+    #[test]
+    fn extract_meeting_name_strips_leaked_ai_generated_title_clause() {
+        assert_eq!(
+            extract_meeting_name_from_markdown("# AI-Generated Title: Sprint Planning\n\nbody"),
+            Some("Sprint Planning".to_string())
+        );
+        assert_eq!(
+            extract_meeting_name_from_markdown("# AI Generated Title - Q3 Roadmap Review\n"),
+            Some("Q3 Roadmap Review".to_string())
+        );
+        // Nothing left after stripping the placeholder-only heading — fall
+        // back to the raw (unstripped) text rather than an empty title.
+        assert_eq!(
+            extract_meeting_name_from_markdown("# [AI-Generated Title]\n"),
+            Some("[AI-Generated Title]".to_string()),
+        );
+    }
+
+    #[test]
+    fn extract_meeting_name_leaves_normal_titles_untouched() {
+        assert_eq!(
+            extract_meeting_name_from_markdown("# Sprint Planning — Q3 Roadmap\n\nbody"),
+            Some("Sprint Planning — Q3 Roadmap".to_string())
         );
     }
 

@@ -6,6 +6,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "frontend", "run", "dev"],
       "port": 3118
+    },
+    {
+      "name": "synth-web-verify",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["NEXT_DIST_DIR=.next-verify", "pnpm", "--dir", "frontend", "exec", "next", "dev", "-p", "3119"],
+      "port": 3119
     }
   ]
 }

@@ -240,7 +240,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     const useVirtualization = segments.length >= VIRTUALIZATION_THRESHOLD;
 
     return (
-        <div ref={scrollRef} className="flex flex-col h-full overflow-y-auto px-4 py-2">
+        <div ref={scrollRef} className="flex flex-col h-full overflow-y-auto custom-scrollbar px-4 py-2">
             {/* Recording Status Bar - Sticky at top, always visible when recording */}
             <AnimatePresence>
                 {isRecording && !hideStatusBar && (

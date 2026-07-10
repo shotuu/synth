@@ -1,10 +1,24 @@
 use log::info as log_info;
 use tauri::{AppHandle, Runtime};
 
-use super::export::{fetch_export_data, render_html};
+use super::export::{fetch_export_data, render_html, ExportData};
 use super::export_docx::render_docx;
 use super::export_pdf::render_pdf;
+use super::transcript_cleanup::clean_transcript;
 use crate::state::AppState;
+
+async fn maybe_clean_transcript<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &tauri::State<'_, AppState>,
+    data: &mut ExportData,
+    ai_cleaned: bool,
+) -> Result<(), String> {
+    if !ai_cleaned || data.transcript_rows.is_empty() {
+        return Ok(());
+    }
+    data.transcript_rows = clean_transcript(app, state.db_manager.pool(), &data.transcript_rows).await?;
+    Ok(())
+}
 
 fn sanitize_filename(title: &str) -> String {
     let cleaned: String = title
@@ -37,13 +51,15 @@ pub async fn api_export_session_html<R: Runtime>(
     app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     meeting_id: String,
+    ai_cleaned: Option<bool>,
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
     let (title, context_type, created_at) = load_session_header(&state, &meeting_id).await?;
-    let data = fetch_export_data(state.db_manager.pool(), &meeting_id, &title, &context_type, &created_at)
+    let mut data = fetch_export_data(state.db_manager.pool(), &meeting_id, &title, &context_type, &created_at)
         .await
         .map_err(|e| format!("Failed to assemble export: {}", e))?;
+    maybe_clean_transcript(&app, &state, &mut data, ai_cleaned.unwrap_or(false)).await?;
     let html = render_html(&data);
 
     let default_name = format!("{}.html", sanitize_filename(&title));
@@ -71,13 +87,15 @@ pub async fn api_export_session_pdf<R: Runtime>(
     app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     meeting_id: String,
+    ai_cleaned: Option<bool>,
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
     let (title, context_type, created_at) = load_session_header(&state, &meeting_id).await?;
-    let data = fetch_export_data(state.db_manager.pool(), &meeting_id, &title, &context_type, &created_at)
+    let mut data = fetch_export_data(state.db_manager.pool(), &meeting_id, &title, &context_type, &created_at)
         .await
         .map_err(|e| format!("Failed to assemble export: {}", e))?;
+    maybe_clean_transcript(&app, &state, &mut data, ai_cleaned.unwrap_or(false)).await?;
 
     let default_name = format!("{}.pdf", sanitize_filename(&title));
     let picked = app
@@ -108,13 +126,15 @@ pub async fn api_export_session_docx<R: Runtime>(
     app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     meeting_id: String,
+    ai_cleaned: Option<bool>,
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
     let (title, context_type, created_at) = load_session_header(&state, &meeting_id).await?;
-    let data = fetch_export_data(state.db_manager.pool(), &meeting_id, &title, &context_type, &created_at)
+    let mut data = fetch_export_data(state.db_manager.pool(), &meeting_id, &title, &context_type, &created_at)
         .await
         .map_err(|e| format!("Failed to assemble export: {}", e))?;
+    maybe_clean_transcript(&app, &state, &mut data, ai_cleaned.unwrap_or(false)).await?;
 
     let default_name = format!("{}.docx", sanitize_filename(&title));
     let picked = app

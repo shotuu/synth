@@ -13,3 +13,4 @@ pub mod export_pdf;
 pub mod folder_commands;
 pub mod storage;
 pub mod storage_commands;
+pub mod transcript_cleanup;

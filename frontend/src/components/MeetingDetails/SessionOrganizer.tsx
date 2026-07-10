@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 
 /** Sentinel for "not in any folder" — Radix Select items can't have value="". */
@@ -33,6 +34,7 @@ export function SessionOrganizer({ meetingId, folderId }: { meetingId: string; f
   const { folders, refetchMeetings } = useSidebar();
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(folderId ?? null);
   const [isExporting, setIsExporting] = useState(false);
+  const [aiCleaned, setAiCleaned] = useState(false);
 
   useEffect(() => {
     setCurrentFolderId(folderId ?? null);
@@ -59,13 +61,15 @@ export function SessionOrganizer({ meetingId, folderId }: { meetingId: string; f
   const handleExport = async (format: keyof typeof EXPORT_COMMANDS) => {
     setIsExporting(true);
     try {
-      const path = await invoke<string | null>(EXPORT_COMMANDS[format], { meetingId });
+      const path = await invoke<string | null>(EXPORT_COMMANDS[format], { meetingId, aiCleaned });
       if (path) {
         toast.success('Session exported', { description: path });
       }
     } catch (error) {
       console.error('Failed to export session:', error);
-      toast.error('Failed to export session');
+      toast.error(aiCleaned ? 'AI cleanup failed' : 'Failed to export session', {
+        description: aiCleaned ? String(error) : undefined,
+      });
     } finally {
       setIsExporting(false);
     }
@@ -99,11 +103,35 @@ export function SessionOrganizer({ meetingId, folderId }: { meetingId: string; f
             title="Export this session to send or use elsewhere"
           >
             {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-            Export
+            {isExporting && aiCleaned ? 'Cleaning up…' : 'Export'}
             <ChevronDown className="w-3 h-3 opacity-60" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[170px]">
+        <DropdownMenuContent align="end" className="min-w-[190px]">
+          <div className="px-2 py-1.5">
+            <div className="flex rounded-md border border-gray-200 p-0.5 text-[11px] font-medium">
+              <button
+                type="button"
+                onClick={() => setAiCleaned(false)}
+                className={`flex-1 rounded px-2 py-1 transition-colors ${!aiCleaned ? 'bg-gray-900 text-gray-50' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Raw
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiCleaned(true)}
+                className={`flex-1 rounded px-2 py-1 transition-colors ${aiCleaned ? 'bg-gray-900 text-gray-50' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                AI-cleaned
+              </button>
+            </div>
+            {aiCleaned && (
+              <p className="mt-1 text-[10px] leading-snug text-gray-400">
+                Removes filler words and reflows into paragraphs, per speaker. Uses your configured AI provider and may take a while.
+              </p>
+            )}
+          </div>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => handleExport('html')} className="flex-col items-start">
             <span className="text-xs font-medium">Shareable page (.html)</span>
             <span className="text-[11px] text-gray-400">Opens in any browser, no app needed</span>

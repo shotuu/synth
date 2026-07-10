@@ -10,7 +10,7 @@ import AnalyticsProvider from '@/components/AnalyticsProvider'
 import { Toaster, toast } from 'sonner'
 import "sonner/dist/styles.css"
 import { useState, useEffect, useCallback } from 'react'
-import { listen, UnlistenFn } from '@tauri-apps/api/event'
+import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { RecordingStateProvider } from '@/contexts/RecordingStateContext'
@@ -19,13 +19,11 @@ import { TranscriptProvider } from '@/contexts/TranscriptContext'
 import { ConfigProvider, useConfig } from '@/contexts/ConfigContext'
 import { OnboardingProvider } from '@/contexts/OnboardingContext'
 import { OnboardingFlow } from '@/components/onboarding'
-import { loadBetaFeatures } from '@/types/betaFeatures'
 import { DownloadProgressToastProvider } from '@/components/shared/DownloadProgressToast'
 import { UpdateCheckProvider } from '@/components/UpdateCheckProvider'
 import { RecordingPostProcessingProvider } from '@/contexts/RecordingPostProcessingProvider'
-import { ImportAudioDialog, ImportDropOverlay } from '@/components/ImportAudio'
+import { ImportAudioDialog } from '@/components/ImportAudio'
 import { ImportDialogProvider } from '@/contexts/ImportDialogContext'
-import { isAudioExtension, getAudioFormatsDisplayList } from '@/constants/audioFormats'
 import { CommandPalette } from '@/components/CommandPalette'
 
 
@@ -81,7 +79,6 @@ export default function RootLayout({
   const [onboardingCompleted, setOnboardingCompleted] = useState(false)
 
   // Import audio state
-  const [showDropOverlay, setShowDropOverlay] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [importFilePath, setImportFilePath] = useState<string | null>(null)
 
@@ -136,87 +133,6 @@ export default function RootLayout({
     };
   }, [showOnboarding]);
 
-  // Handle file drop for audio import
-  const handleFileDrop = useCallback((paths: string[]) => {
-    // Check if beta features are enabled (read from localStorage directly since we're outside ConfigProvider)
-    const betaFeatures = loadBetaFeatures();
-
-    if (!betaFeatures.importAndRetranscribe) {
-      toast.error('Beta feature disabled', {
-        description: 'Enable "Import Audio & Retranscribe" in Settings > Beta to use this feature.'
-      });
-      return;
-    }
-
-    // Find the first audio file
-    const audioFile = paths.find(p => {
-      const ext = p.split('.').pop()?.toLowerCase();
-      return !!ext && isAudioExtension(ext);
-    });
-
-    if (audioFile) {
-      console.log('[Layout] Audio file dropped:', audioFile);
-      setImportFilePath(audioFile);
-      setShowImportDialog(true);
-    } else if (paths.length > 0) {
-      toast.error('Please drop an audio file', {
-        description: `Supported formats: ${getAudioFormatsDisplayList()}`
-      });
-    }
-  }, []);
-
-  // Listen for drag-drop events
-  useEffect(() => {
-    if (showOnboarding) return; // Don't handle drops during onboarding
-
-    const unlisteners: UnlistenFn[] = [];
-    const cleanedUpRef = { current: false };
-
-    const setupListeners = async () => {
-      // Drag enter/over - show overlay only if beta feature is enabled
-      const unlistenDragEnter = await listen('tauri://drag-enter', () => {
-        if (loadBetaFeatures().importAndRetranscribe) {
-          setShowDropOverlay(true);
-        }
-      });
-      if (cleanedUpRef.current) {
-        unlistenDragEnter();
-        return;
-      }
-      unlisteners.push(unlistenDragEnter);
-
-      // Drag leave - hide overlay
-      const unlistenDragLeave = await listen('tauri://drag-leave', () => {
-        setShowDropOverlay(false);
-      });
-      if (cleanedUpRef.current) {
-        unlistenDragLeave();
-        unlisteners.forEach(u => u());
-        return;
-      }
-      unlisteners.push(unlistenDragLeave);
-
-      // Drop - process files
-      const unlistenDrop = await listen<{ paths: string[] }>('tauri://drag-drop', (event) => {
-        setShowDropOverlay(false);
-        handleFileDrop(event.payload.paths);
-      });
-      if (cleanedUpRef.current) {
-        unlistenDrop();
-        unlisteners.forEach(u => u());
-        return;
-      }
-      unlisteners.push(unlistenDrop);
-    };
-
-    setupListeners();
-
-    return () => {
-      cleanedUpRef.current = true;
-      unlisteners.forEach((unlisten) => unlisten());
-    };
-  }, [showOnboarding, handleFileDrop]);
-
   // Handle import dialog close
   const handleImportDialogClose = useCallback((open: boolean) => {
     setShowImportDialog(open);
@@ -266,8 +182,7 @@ export default function RootLayout({
                                   <MainContent>{children}</MainContent>
                                 </div>
                               )}
-                              {/* Import audio overlay and dialog */}
-                              <ImportDropOverlay visible={showDropOverlay} />
+                              {/* Import audio dialog */}
                               <ConditionalImportDialog
                                 showImportDialog={showImportDialog}
                                 handleImportDialogClose={handleImportDialogClose}

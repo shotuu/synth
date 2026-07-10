@@ -18,7 +18,8 @@
                 "resizable": true,
                 "fullscreen": false,
                 "theme": "Light",
-                "decorations": true
+                "decorations": true,
+                "dragDropEnabled": false
             }
         ],
         "macOSPrivateApi": true,
