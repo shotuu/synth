@@ -1,8 +1,6 @@
 <div align="center">
 
-# Synth
-
-**A privacy-first, context-aware meeting & note-taking assistant that runs entirely on your machine.**
+<img src="docs/synth-banner.svg" alt="Synth — a privacy-first, context-aware meeting and note-taking assistant" width="100%" />
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](#building-from-source)
