@@ -30,6 +30,7 @@ pub async fn initialize_parallel_processor(
     memory_budget_mb: Option<u64>,
 ) -> Result<String, String> {
     let mut config = ParallelConfig::default();
+    config.models_dir = crate::whisper_engine::commands::get_models_directory();
 
     if let Some(workers) = max_workers {
         config.max_workers = std::cmp::min(workers, 4); // Safety limit

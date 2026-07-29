@@ -56,6 +56,12 @@ pub struct ParallelConfig {
     pub retry_delay_ms: u64,         // Delay between retries
     pub resource_check_interval_ms: u64, // How often to check system resources
     pub enable_fallback_mode: bool,  // Fall back to sequential processing on failures
+    // The app's actual configured models directory (see
+    // whisper_engine::commands::get_models_directory). Each worker's WhisperEngine
+    // must be pointed at this explicitly — leaving it None lets WhisperEngine::new()
+    // fall back to its own independently-resolved default directory, which can differ
+    // from the app's real one and make every worker report the model as Missing.
+    pub models_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for ParallelConfig {
@@ -67,6 +73,7 @@ impl Default for ParallelConfig {
             retry_delay_ms: 1000,        // 1 second retry delay
             resource_check_interval_ms: 10000, // Check resources every 10 seconds
             enable_fallback_mode: true,  // Always enable fallback for safety
+            models_dir: None,
         }
     }
 }
@@ -219,10 +226,16 @@ impl ParallelProcessor {
             info!("Worker {} started", worker_id);
             let _ = event_sender.send(ProcessingEvent::WorkerStarted(worker_id));
 
-            // Load model for this worker
+            // Load model for this worker. Pass the app's actual configured models
+            // directory explicitly (config.models_dir) instead of calling
+            // WhisperEngine::new() — that resolves its own default directory
+            // independently, which can diverge from the app's real one and make the
+            // model report as Missing for every worker, silently stalling the batch.
             {
                 let mut engine_guard = engine_ref.write().await;
-                let engine = WhisperEngine::new().map_err(|e| anyhow!("Failed to create WhisperEngine: {}", e))?;
+                let engine = WhisperEngine::new_with_models_dir(config.models_dir.clone())
+                    .map_err(|e| anyhow!("Failed to create WhisperEngine: {}", e))?;
+                engine.discover_models().await.map_err(|e| anyhow!("Failed to discover models: {}", e))?;
                 engine.load_model(&model_name).await.map_err(|e| anyhow!("Failed to load model {}: {}", model_name, e))?;
                 *engine_guard = Some(engine);
                 info!("Worker {} loaded model {}", worker_id, model_name);

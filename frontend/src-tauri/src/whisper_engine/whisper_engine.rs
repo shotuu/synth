@@ -47,6 +47,10 @@ pub struct WhisperEngine {
     cancel_download_flag: Arc<RwLock<Option<String>>>, // Model name being cancelled
     // Active downloads tracking to prevent concurrent downloads
     active_downloads: Arc<RwLock<HashSet<String>>>, // Set of models currently being downloaded
+    // Serializes the whole check-unload-load-write sequence in load_model() so two
+    // concurrent calls (e.g. rapid model switching in the UI) can't both pass the
+    // "not already loaded" check and both build+install a WhisperContext.
+    loading_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl WhisperEngine {
@@ -163,6 +167,7 @@ impl WhisperEngine {
             cancel_download_flag: Arc::new(RwLock::new(None)),
             // Initialize active downloads tracking
             active_downloads: Arc::new(RwLock::new(HashSet::new())),
+            loading_lock: Arc::new(tokio::sync::Mutex::new(())),
         };
         
         Ok(engine)
@@ -259,6 +264,12 @@ impl WhisperEngine {
     }
     
     pub async fn load_model(&self, model_name: &str) -> Result<()> {
+        // Hold this for the entire check-unload-load-write sequence below so two
+        // concurrent load_model() calls can't both observe "not loaded yet" and both
+        // proceed to build+install a WhisperContext (transient double memory usage and
+        // a nondeterministic final current_context/current_model — last writer wins).
+        let _loading_guard = self.loading_lock.lock().await;
+
         let models = self.available_models.read().await;
         let model_info = models.get(model_name)
             .ok_or_else(|| anyhow!("Model {} not found", model_name))?;
@@ -306,21 +317,65 @@ impl WhisperEngine {
 
                 // PERFORMANCE: Suppress verbose C library logs during model loading
                 // This hides the excessive Metal/GGML initialization logs in release builds
-                let ctx = {
+                // fell_back_to_cpu tracks whether the GPU attempt below failed and we
+                // retried on CPU, so the "Successfully loaded" log and status label
+                // reflect what actually happened, not just what was requested.
+                let mut fell_back_to_cpu = false;
+                // block_in_place: WhisperContext::new_with_params is a synchronous,
+                // multi-second C call. Running it directly inline here would occupy this
+                // Tokio worker thread for that whole time, able to stall unrelated
+                // concurrent Tauri commands scheduled on the same worker. block_in_place
+                // tells the runtime to hand this thread's other work off to another
+                // worker for the duration — unlike spawn_blocking, it doesn't require the
+                // closure to be 'static/Send, so it can borrow fell_back_to_cpu and the
+                // other locals here directly without restructuring ownership.
+                let ctx = tokio::task::block_in_place(|| -> Result<WhisperContext> {
                     // let _suppressor = crate::whisper_engine::StderrSuppressor::new();
 
                     // Load whisper context with hardware-optimized parameters
-                    WhisperContext::new_with_params(&model_info.path.to_string_lossy(), context_param)
-                        .map_err(|e| anyhow!("Failed to load model {}: {}", model_name, e))?
+                    match WhisperContext::new_with_params(&model_info.path.to_string_lossy(), context_param) {
+                        Ok(ctx) => Ok(ctx),
+                        Err(gpu_err) if acceleration.use_gpu => {
+                            // GPU init failed (driver crash, out-of-memory, unsupported
+                            // device, etc.) — the docs promise "falls back to CPU if GPU
+                            // unavailable" but nothing previously did that; the error just
+                            // propagated. Retry once on CPU before giving up entirely.
+                            log::warn!(
+                                "GPU-accelerated load of model {} failed ({}), retrying on CPU",
+                                model_name, gpu_err
+                            );
+                            let cpu_context_param = WhisperContextParameters {
+                                use_gpu: false,
+                                gpu_device: 0,
+                                flash_attn: false,
+                                ..Default::default()
+                            };
+                            let ctx = WhisperContext::new_with_params(
+                                &model_info.path.to_string_lossy(),
+                                cpu_context_param,
+                            )
+                            .map_err(|cpu_err| anyhow!(
+                                "Failed to load model {} on GPU ({}) and CPU fallback also failed: {}",
+                                model_name, gpu_err, cpu_err
+                            ))?;
+                            fell_back_to_cpu = true;
+                            Ok(ctx)
+                        }
+                        Err(e) => Err(anyhow!("Failed to load model {}: {}", model_name, e)),
+                    }
                     // Suppressor dropped here, stderr restored
-                };
+                })?;
 
                 // Update current context and model
                 *self.current_context.write().await = Some(ctx);
                 *self.current_model.write().await = Some(model_name.to_string());
 
                 // Enhanced acceleration status reporting
-                let acceleration_status = acceleration.status_label();
+                let acceleration_status = if fell_back_to_cpu {
+                    "CPU processing only (GPU load failed, fell back automatically)"
+                } else {
+                    acceleration.status_label()
+                };
 
                 log::info!("Successfully loaded model: {} with {} (Performance Tier: {:?}, Beam Size: {}, Threads: {:?})",
                           model_name, acceleration_status, hardware_profile.performance_tier,
@@ -578,16 +633,21 @@ impl WhisperEngine {
 
         // PERFORMANCE: Suppress verbose C library logs during transcription
         // This hides whisper_full_with_state debug logs and beam search details
-        let (num_segments, state) = {
+        // block_in_place: state.full() is a synchronous, multi-second C transcription
+        // call. See the matching comment in load_model() for why this (not
+        // spawn_blocking) is the right tool — ctx is borrowed from an async RwLock
+        // guard held by the caller, and block_in_place's closure has no 'static/Send
+        // requirement that would prevent borrowing it.
+        let (num_segments, state) = tokio::task::block_in_place(|| -> Result<_> {
             // let _suppressor = crate::whisper_engine::StderrSuppressor::new();
 
             let mut state = ctx.create_state()?;
             state.full(params, &audio_data)?;
             let num_segments = state.full_n_segments();
 
-            (num_segments, state)
+            Ok((num_segments, state))
             // Suppressor dropped here, stderr restored
-        };
+        })?;
         let mut result = String::new();
         let mut total_confidence = 0.0;
         let mut segment_count = 0;
@@ -736,8 +796,14 @@ impl WhisperEngine {
             log::info!("Starting transcription #{} of {} samples ({:.1}s duration)",
                       transcription_count, audio_data.len(), duration_seconds);
         }
-        let mut state = ctx.create_state()?;
-        state.full(params, &audio_data)?;
+        // block_in_place: see the matching comment in transcribe_audio_with_confidence
+        // for why this call — a synchronous, multi-second C transcription call — needs
+        // to yield this Tokio worker thread to other tasks for its duration.
+        let state = tokio::task::block_in_place(|| -> Result<_> {
+            let mut state = ctx.create_state()?;
+            state.full(params, &audio_data)?;
+            Ok(state)
+        })?;
 
         // Extract text with improved segment handling
         let num_segments = state.full_n_segments()?;

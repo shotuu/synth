@@ -7,11 +7,21 @@ use tracing::{error, info};
 pub struct MeetingsRepository;
 
 impl MeetingsRepository {
+    /// Safety cap on how many meetings a single get_meetings() call will load into
+    /// memory. This is not a real pagination UI (the frontend has no "load more" for
+    /// the meeting list, unlike transcripts' usePaginatedTranscripts) — it's just a
+    /// backstop so a power user with thousands of meetings doesn't pay an unbounded
+    /// query/memory cost every time the sidebar list loads. Most recent meetings sort
+    /// first, so this degrades gracefully by hiding only the oldest meetings.
+    const MAX_MEETINGS_PER_LOAD: i64 = 1000;
+
     pub async fn get_meetings(pool: &SqlitePool) -> Result<Vec<MeetingModel>, sqlx::Error> {
-        let meetings =
-            sqlx::query_as::<_, MeetingModel>("SELECT * FROM meetings ORDER BY created_at DESC")
-                .fetch_all(pool)
-                .await?;
+        let meetings = sqlx::query_as::<_, MeetingModel>(
+            "SELECT * FROM meetings ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(Self::MAX_MEETINGS_PER_LOAD)
+        .fetch_all(pool)
+        .await?;
         Ok(meetings)
     }
 
@@ -246,12 +256,19 @@ async fn delete_meeting_with_transaction(
         return Ok(false);
     }
 
-    // Delete from related tables in proper order. SQLite foreign keys are
-    // never PRAGMA-enabled in this app, so ON DELETE CASCADE in the schema
-    // is decorative -- every child table needs an explicit delete here or
-    // its rows are orphaned. (Phases 2-5 tables added since this function
-    // was first written: action_items, note_attachments, note_audio,
-    // meeting_notes.)
+    // Delete from related tables in proper order. NOTE: contrary to what this comment
+    // used to claim, foreign key enforcement (and therefore ON DELETE CASCADE) IS
+    // actually active here — sqlx's SqliteConnectOptions enables `PRAGMA foreign_keys`
+    // by default, and DatabaseManager::new's connection goes through that default (see
+    // the foreign_keys_are_enforced_on_the_default_bare_path_connection regression test
+    // in database::manager::tests). Deleting `meetings` alone would already cascade to
+    // every child table declared with ON DELETE CASCADE. These explicit deletes are
+    // kept anyway — they're harmless (a DELETE matching zero rows is a no-op) and this
+    // function is the one place that documents every child table a meeting fans out to,
+    // which is worth keeping explicit rather than relying on scattered schema-only
+    // cascade declarations being individually correct and complete. (Phases 2-5 tables
+    // added since this function was first written: action_items, note_attachments,
+    // note_audio, meeting_notes.)
     // 1. Delete from transcript_chunks
     sqlx::query("DELETE FROM transcript_chunks WHERE meeting_id = ?")
         .bind(meeting_id)
@@ -302,4 +319,43 @@ async fn delete_meeting_with_transaction(
         .await?;
 
     Ok(result.rows_affected() > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn test_pool() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn get_meetings_caps_result_size_and_keeps_the_most_recent() {
+        let pool = test_pool().await;
+
+        // Insert more than MAX_MEETINGS_PER_LOAD meetings with strictly increasing
+        // created_at timestamps so ordering is unambiguous.
+        let total_to_insert = MeetingsRepository::MAX_MEETINGS_PER_LOAD + 5;
+        for i in 0..total_to_insert {
+            sqlx::query(
+                "INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?, ?, datetime('now', ?), datetime('now'))",
+            )
+            .bind(format!("meeting-{:05}", i))
+            .bind(format!("Meeting {}", i))
+            .bind(format!("+{} seconds", i)) // later i => later created_at => sorts first
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let meetings = MeetingsRepository::get_meetings(&pool).await.unwrap();
+        assert_eq!(meetings.len() as i64, MeetingsRepository::MAX_MEETINGS_PER_LOAD);
+
+        // The most recently created meeting (highest i, latest created_at) must be kept,
+        // not silently dropped in favor of older ones.
+        let newest_expected_id = format!("meeting-{:05}", total_to_insert - 1);
+        assert_eq!(meetings[0].id, newest_expected_id);
+    }
 }

@@ -262,6 +262,37 @@ mod tests {
         pool
     }
 
+    /// Regression test: sqlx's SqliteConnectOptions enables `PRAGMA foreign_keys` by
+    /// default (see sqlx-sqlite's options/mod.rs — "SQLx chooses to enable this by
+    /// default so that foreign keys function as expected"), and DatabaseManager::new's
+    /// SqlitePool::connect(bare_path) goes through that same default. This locks that
+    /// behavior in: if a future sqlx upgrade or a switch to an explicit
+    /// SqliteConnectOptions/connection string ever silently drops that default, this
+    /// test catches it. (A comment in meeting.rs used to claim FK enforcement was never
+    /// on in this app at all — it wasn't accurate; this test is what disproved it.)
+    #[tokio::test]
+    async fn foreign_keys_are_enforced_on_the_default_bare_path_connection() {
+        // Faithfully reproduce DatabaseManager::new's exact connection path: a bare
+        // filesystem path with no "sqlite:" scheme, not the "sqlite::memory:" shortcut
+        // test_pool() uses above, in case that shortcut parses differently.
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("fk_check.sqlite");
+        let db_path_str = db_path.to_str().unwrap();
+        sqlx::Sqlite::create_database(db_path_str).await.unwrap();
+        let pool = SqlitePool::connect(db_path_str).await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+        let result = sqlx::query(
+            "INSERT INTO transcript_chunks (meeting_id, meeting_name, transcript_text, model, model_name, created_at) VALUES ('nonexistent-meeting-id', 'x', 'hello', 'ollama', 'llama3.1', datetime('now'))",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            result.is_err(),
+            "insert with a meeting_id referencing a nonexistent meeting should have been rejected by the foreign key constraint"
+        );
+    }
+
     async fn insert_meeting(pool: &SqlitePool, id: &str, title: &str) {
         sqlx::query(
             "INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))",

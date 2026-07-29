@@ -21,6 +21,35 @@ pub enum StreamManagerType {
     Standard(AudioStreamManager),
 }
 
+/// Resets RecordingState back to "not recording" on Drop unless `disarm()` was called.
+///
+/// RecordingState::start_recording() now uses an atomic compare-exchange to guard
+/// against concurrent double-starts (see its doc comment), which means is_recording
+/// stays permanently stuck at `true` if anything after it fails and nothing resets
+/// it — previously harmless (the old unconditional store self-healed on the next
+/// attempt), but now that would permanently lock out all future recording attempts
+/// until an app restart. This guard makes every early-return path in
+/// RecordingManager::start_recording (present or future) roll the flag back.
+struct RecordingStartRollbackGuard {
+    state: Arc<RecordingState>,
+    armed: bool,
+}
+
+impl RecordingStartRollbackGuard {
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for RecordingStartRollbackGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            warn!("Recording start failed after state.start_recording() succeeded — rolling back is_recording");
+            self.state.stop_recording();
+        }
+    }
+}
+
 /// Simplified recording manager that coordinates all audio components
 pub struct RecordingManager {
     state: Arc<RecordingState>,
@@ -78,6 +107,10 @@ impl RecordingManager {
 
         // Start recording state first
         self.state.start_recording()?;
+        let rollback_guard = RecordingStartRollbackGuard {
+            state: self.state.clone(),
+            armed: true,
+        };
 
         // Get device information for adaptive mixing
         // The pipeline uses device kind (Bluetooth vs Wired) to apply adaptive buffering:
@@ -143,6 +176,7 @@ impl RecordingManager {
         info!("Recording manager started successfully with {} active streams",
                self.stream_manager.active_stream_count());
 
+        rollback_guard.disarm();
         Ok(transcription_receiver)
     }
 

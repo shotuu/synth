@@ -34,7 +34,7 @@ pub fn set_models_directory<R: Runtime>(app: &AppHandle<R>) {
 }
 
 /// Get the configured models directory
-fn get_models_directory() -> Option<PathBuf> {
+pub fn get_models_directory() -> Option<PathBuf> {
     MODELS_DIR.lock().clone()
 }
 

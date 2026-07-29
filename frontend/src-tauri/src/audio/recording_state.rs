@@ -151,7 +151,19 @@ impl RecordingState {
 
     // Recording control
     pub fn start_recording(&self) -> Result<()> {
-        self.is_recording.store(true, Ordering::SeqCst);
+        // Atomic compare-exchange instead of an unconditional store: closes the race
+        // where two concurrent start_recording invocations (e.g. a racing UI
+        // double-click, or the tray and the UI both firing) could both observe
+        // "not recording" and both proceed to open device streams, producing duplicate
+        // audio capture or device-busy errors. Whichever call wins this exchange
+        // proceeds; the other gets an error instead of silently double-starting.
+        if self
+            .is_recording
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err(anyhow::anyhow!("Recording is already in progress"));
+        }
         *self.recording_start.lock() = Some(Instant::now());
         self.error_count.store(0, Ordering::SeqCst);
         self.recoverable_error_count.store(0, Ordering::SeqCst);
@@ -436,6 +448,38 @@ impl Default for RecordingState {
             pause_start: Mutex::new(None),
             total_pause_duration: Mutex::new(std::time::Duration::ZERO),
         }
+    }
+}
+
+#[cfg(test)]
+mod double_start_tests {
+    use super::*;
+
+    #[test]
+    fn second_concurrent_start_is_rejected_not_silently_overwritten() {
+        let state = RecordingState::new();
+        assert!(state.start_recording().is_ok());
+        assert!(state.is_recording());
+
+        // A second start while already recording must error, not silently reset state
+        // (which is what let two racing "Start Recording" invocations both proceed to
+        // open device streams).
+        let second = state.start_recording();
+        assert!(second.is_err());
+        assert!(state.is_recording(), "first recording must still be considered active");
+    }
+
+    #[test]
+    fn start_recording_works_again_after_stop_recording() {
+        let state = RecordingState::new();
+        assert!(state.start_recording().is_ok());
+        state.stop_recording();
+        assert!(!state.is_recording());
+
+        // Once properly stopped, starting again must succeed — this is the rollback
+        // path RecordingManager relies on when a start fails partway through.
+        assert!(state.start_recording().is_ok());
+        assert!(state.is_recording());
     }
 }
 
