@@ -37,7 +37,7 @@ pub(crate) async fn unload_engine_after_batch(use_parakeet: bool) {
     } else {
         use crate::whisper_engine::commands::WHISPER_ENGINE;
         let engine = {
-            let guard = WHISPER_ENGINE.lock().unwrap_or_else(|e| e.into_inner());
+            let guard = WHISPER_ENGINE.lock();
             guard.as_ref().cloned()
         };
         if let Some(e) = engine {

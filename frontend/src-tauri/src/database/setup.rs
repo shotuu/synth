@@ -4,6 +4,31 @@ use tauri::{AppHandle, Emitter, Manager};
 use super::manager::DatabaseManager;
 use crate::state::AppState;
 
+/// Rename the sqlite database (and its WAL/SHM sidecar files, if present) aside with a
+/// timestamp suffix so a fresh database can be created in its place. Used as a last-resort
+/// recovery path when the database fails to open/migrate on startup (e.g. after a downgrade
+/// leaves a migration checksum mismatch) — this preserves the old data for manual recovery
+/// instead of deleting it outright.
+pub fn backup_and_reset_database(app: &AppHandle) -> Result<(), String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
+
+    let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
+    for filename in ["meeting_minutes.sqlite", "meeting_minutes.sqlite-wal", "meeting_minutes.sqlite-shm"] {
+        let path = app_data_dir.join(filename);
+        if path.exists() {
+            let backup_path = app_data_dir.join(format!("{}.bak-{}", filename, timestamp));
+            std::fs::rename(&path, &backup_path)
+                .map_err(|e| format!("Failed to back up {}: {}", filename, e))?;
+            info!("Backed up {:?} to {:?}", path, backup_path);
+        }
+    }
+
+    Ok(())
+}
+
 /// Initialize database on app startup
 /// Handles first launch detection and conditional initialization
 pub async fn initialize_database_on_startup(app: &AppHandle) -> Result<(), String> {

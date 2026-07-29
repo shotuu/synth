@@ -676,8 +676,7 @@ pub async fn stop_recording<R: Runtime>(
             info!("🎤 Unloading Whisper model...");
             let engine_clone = {
                 let engine_guard = crate::whisper_engine::commands::WHISPER_ENGINE
-                    .lock()
-                    .unwrap();
+                    .lock();
                 engine_guard.as_ref().cloned()
             };
 

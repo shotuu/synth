@@ -7107,6 +7107,7 @@ dependencies = [
  "objc",
  "once_cell",
  "ort",
+ "parking_lot",
  "pdf-extract",
  "posthog-rs",
  "pulldown-cmark",

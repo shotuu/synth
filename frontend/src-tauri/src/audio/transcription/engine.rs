@@ -228,8 +228,7 @@ pub async fn get_or_init_whisper<R: Runtime>(
     // Check if engine already exists and has a model loaded
     let existing_engine = {
         let engine_guard = crate::whisper_engine::commands::WHISPER_ENGINE
-            .lock()
-            .unwrap();
+            .lock();
         engine_guard.as_ref().cloned()
     };
 
@@ -312,8 +311,7 @@ pub async fn get_or_init_whisper<R: Runtime>(
     // Get the engine reference
     let engine = {
         let engine_guard = crate::whisper_engine::commands::WHISPER_ENGINE
-            .lock()
-            .unwrap();
+            .lock();
         engine_guard
             .as_ref()
             .cloned()

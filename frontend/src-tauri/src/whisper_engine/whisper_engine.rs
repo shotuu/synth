@@ -1075,9 +1075,42 @@ impl WhisperEngine {
         
         file.flush().await
             .map_err(|e| anyhow!("Failed to flush file: {}", e))?;
-        
+        drop(file);
+
         log::info!("Download completed for model: {}", model_name);
-        
+
+        // Verify the file we just wrote is actually complete and well-formed before
+        // trusting it. A dropped connection can end the byte stream early without
+        // `chunk_result` ever surfacing an `Err`, which used to leave a truncated file
+        // marked `Available` and later handed straight to whisper.cpp, which aborts
+        // the whole process on malformed model data instead of returning a Rust error.
+        let download_failure = if total_size > 0 && downloaded != total_size {
+            Some(anyhow!(
+                "Downloaded file size ({} bytes) doesn't match expected size ({} bytes) — download was likely interrupted",
+                downloaded, total_size
+            ))
+        } else if let Err(e) = self.validate_model_file(&file_path).await {
+            Some(anyhow!("Downloaded model file failed validation: {}", e))
+        } else {
+            None
+        };
+
+        if let Some(err) = download_failure {
+            log::error!("Download verification failed for {}: {}", model_name, err);
+            let _ = fs::remove_file(&file_path).await;
+            {
+                let mut models = self.available_models.write().await;
+                if let Some(model_info) = models.get_mut(model_name) {
+                    model_info.status = ModelStatus::Missing;
+                }
+            }
+            {
+                let mut active = self.active_downloads.write().await;
+                active.remove(model_name);
+            }
+            return Err(err);
+        }
+
         // Update model status to available
         {
             let mut models = self.available_models.write().await;

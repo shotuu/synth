@@ -497,11 +497,49 @@ pub fn run() {
             //     });
             // }
 
-            // Initialize database (handles first launch detection and conditional setup)
-            tauri::async_runtime::block_on(async {
+            // Initialize database (handles first launch detection and conditional setup).
+            // Don't `.expect()` here: a migration checksum mismatch (e.g. after downgrading
+            // the app) leaves the user with a hard crash and no way to recover their meeting
+            // history themselves. Instead, offer to back the DB file aside and start fresh.
+            if let Err(e) = tauri::async_runtime::block_on(async {
                 database::setup::initialize_database_on_startup(&_app.handle()).await
-            })
-            .expect("Failed to initialize database");
+            }) {
+                log::error!("Failed to initialize database: {}", e);
+
+                use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+                let wants_reset = _app
+                    .dialog()
+                    .message(format!(
+                        "Synth couldn't open its database:\n\n{}\n\nThis can happen after downgrading the app or if the database file was corrupted. \
+                         Your existing database file will be renamed (not deleted) and a fresh one will be created.\n\n\
+                         Reset the database and continue?",
+                        e
+                    ))
+                    .title("Database Error")
+                    .kind(MessageDialogKind::Error)
+                    .buttons(MessageDialogButtons::YesNo)
+                    .blocking_show();
+
+                let recovered = wants_reset && database::setup::backup_and_reset_database(&_app.handle())
+                    .and_then(|_| {
+                        tauri::async_runtime::block_on(async {
+                            database::setup::initialize_database_on_startup(&_app.handle()).await
+                        })
+                        .map_err(|e| format!("Retry after reset also failed: {}", e))
+                    })
+                    .map_err(|e| log::error!("Database reset/retry failed: {}", e))
+                    .is_ok();
+
+                if !recovered {
+                    _app.dialog()
+                        .message("Synth can't start without a working database and will now close.")
+                        .title("Database Error")
+                        .kind(MessageDialogKind::Error)
+                        .buttons(MessageDialogButtons::Ok)
+                        .blocking_show();
+                    std::process::exit(1);
+                }
+            }
 
             // Initialize bundled templates directory for dynamic template discovery
             log::info!("Initializing bundled templates directory...");

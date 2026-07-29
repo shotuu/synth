@@ -3,7 +3,8 @@
 #[cfg(target_os = "macos")]
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use std::task::{Context, Poll, Waker};
 use anyhow::Result;
 use futures_util::Stream;
@@ -110,10 +111,12 @@ impl CoreAudioCapture {
             }
         }
 
-        // Create sub-tap dictionary
+        // Create sub-tap dictionary. Reuse the already-computed `tap_uid` (which falls
+        // back to a fresh UUID if `tap.uid()` fails) instead of calling `tap.uid()` again
+        // and unwrapping — the raw call can fail here even though it succeeded above.
         let sub_tap = cf::DictionaryOf::with_keys_values(
             &[ca::sub_device_keys::uid()],
-            &[tap.uid().unwrap().as_type_ref()],
+            &[tap_uid.as_type_ref()],
         );
 
         // Create aggregate device descriptor
@@ -164,37 +167,47 @@ impl CoreAudioCapture {
             _output_time: &cat::AudioTimeStamp,
             ctx: Option<&mut AudioContext>,
         ) -> os::Status {
-            let ctx = ctx.unwrap();
+            // This function is invoked by Core Audio's own real-time thread via FFI.
+            // Unwinding a panic across an `extern "C"` boundary is UB (typically an
+            // abrupt process abort on macOS/Linux), so any panic in here must be caught
+            // and turned into a dropped buffer instead of taking down the whole app.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let ctx = ctx.unwrap();
 
-            // Check for sample rate changes
-            let after = device
-                .nominal_sample_rate()
-                .unwrap_or(ctx.format.absd().sample_rate) as u32;
-            let before = ctx.current_sample_rate.load(Ordering::Acquire);
+                // Check for sample rate changes
+                let after = device
+                    .nominal_sample_rate()
+                    .unwrap_or(ctx.format.absd().sample_rate) as u32;
+                let before = ctx.current_sample_rate.load(Ordering::Acquire);
 
-            if before != after {
-                ctx.current_sample_rate.store(after, Ordering::Release);
-            }
-
-            // Try to get audio data from the buffer list
-            if let Some(view) =
-                av::AudioPcmBuf::with_buf_list_no_copy(&ctx.format, input_data, None)
-            {
-                if let Some(data) = view.data_f32_at(0) {
-                    process_audio_data(ctx, data);
+                if before != after {
+                    ctx.current_sample_rate.store(after, Ordering::Release);
                 }
-            } else if ctx.format.common_format() == av::audio::CommonFormat::PcmF32 {
-                // Fallback: manual extraction if AudioPcmBuf fails
-                let first_buffer = &input_data.buffers[0];
-                let byte_count = first_buffer.data_bytes_size as usize;
-                let float_count = byte_count / std::mem::size_of::<f32>();
 
-                if float_count > 0 && first_buffer.data != std::ptr::null_mut() {
-                    let data = unsafe {
-                        std::slice::from_raw_parts(first_buffer.data as *const f32, float_count)
-                    };
-                    process_audio_data(ctx, data);
+                // Try to get audio data from the buffer list
+                if let Some(view) =
+                    av::AudioPcmBuf::with_buf_list_no_copy(&ctx.format, input_data, None)
+                {
+                    if let Some(data) = view.data_f32_at(0) {
+                        process_audio_data(ctx, data);
+                    }
+                } else if ctx.format.common_format() == av::audio::CommonFormat::PcmF32 {
+                    // Fallback: manual extraction if AudioPcmBuf fails
+                    let first_buffer = &input_data.buffers[0];
+                    let byte_count = first_buffer.data_bytes_size as usize;
+                    let float_count = byte_count / std::mem::size_of::<f32>();
+
+                    if float_count > 0 && first_buffer.data != std::ptr::null_mut() {
+                        let data = unsafe {
+                            std::slice::from_raw_parts(first_buffer.data as *const f32, float_count)
+                        };
+                        process_audio_data(ctx, data);
+                    }
                 }
+            }));
+
+            if result.is_err() {
+                error!("🔴 CoreAudio: audio_proc callback panicked — dropping this audio buffer instead of aborting the process");
             }
 
             os::Status::NO_ERR
@@ -316,7 +329,7 @@ fn process_audio_data(ctx: &mut AudioContext, data: &[f32]) {
 
     if pushed > 0 {
         let should_wake = {
-            let mut waker_state = ctx.waker_state.lock().unwrap();
+            let mut waker_state = ctx.waker_state.lock();
             if !waker_state.has_data {
                 waker_state.has_data = true;
                 waker_state.waker.take()
@@ -363,7 +376,7 @@ impl Stream for CoreAudioStream {
 
         // No data available, register waker and return pending
         {
-            let mut state = self.waker_state.lock().unwrap();
+            let mut state = self.waker_state.lock();
             state.has_data = false;
             state.waker = Some(cx.waker().clone());
         }
