@@ -38,6 +38,34 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
   const finalFlushRef = useRef<(() => void) | null>(null);
 
+  // currentMeetingId mirrored into a ref so the mount-once transcript listener effect
+  // below can read the *current* meeting id without taking a dependency on it (see that
+  // effect for why re-running on every meeting id change is unsafe).
+  const currentMeetingIdRef = useRef<string | null>(currentMeetingId);
+  useEffect(() => {
+    currentMeetingIdRef.current = currentMeetingId;
+  }, [currentMeetingId]);
+
+  // Sequence-buffering state for the transcript listener, held in refs (not effect-local
+  // `let`s) so it can be shared between the mount-once listener effect and the
+  // per-meeting reset effect below.
+  const transcriptBufferRef = useRef(new Map<number, Transcript>());
+  const transcriptCounterRef = useRef(0);
+  const lastProcessedSequenceRef = useRef(0);
+  const processingTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
+  // Reset per-meeting buffering state whenever the active meeting changes, so stale
+  // sequence numbers / dedup state from a previous meeting can't leak into a new one.
+  useEffect(() => {
+    transcriptBufferRef.current.clear();
+    transcriptCounterRef.current = 0;
+    lastProcessedSequenceRef.current = 0;
+    if (processingTimerRef.current) {
+      clearTimeout(processingTimerRef.current);
+      processingTimerRef.current = undefined;
+    }
+  }, [currentMeetingId]);
+
   // Keep ref updated with current transcripts
   useEffect(() => {
     transcriptsRef.current = transcripts;
@@ -177,24 +205,28 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     };
   }, [currentMeetingId]);
 
-  // Main transcript buffering logic with sequence_id ordering
+  // Main transcript buffering logic with sequence_id ordering. Registered once on
+  // mount (deps: []) rather than re-subscribing per meeting — re-subscribing on every
+  // currentMeetingId change used to unsubscribe synchronously but re-subscribe
+  // asynchronously (transcriptService.onTranscriptUpdate returns a Promise), leaving a
+  // real window with no listener registered right as a new recording starts and the
+  // backend begins emitting events, silently dropping the first transcript chunks.
+  // Per-meeting state (buffer/counters) lives in refs reset by the effect above instead
+  // of effect-local `let`s, since this effect itself no longer re-runs per meeting.
   useEffect(() => {
     let unlistenFn: (() => void) | undefined;
-    let transcriptCounter = 0;
-    let transcriptBuffer = new Map<number, Transcript>();
-    let lastProcessedSequence = 0;
-    let processingTimer: NodeJS.Timeout | undefined;
+    const transcriptBuffer = transcriptBufferRef.current;
 
     const processBufferedTranscripts = (forceFlush = false) => {
       const sortedTranscripts: Transcript[] = [];
 
       // Process all available sequential transcripts
-      let nextSequence = lastProcessedSequence + 1;
+      let nextSequence = lastProcessedSequenceRef.current + 1;
       while (transcriptBuffer.has(nextSequence)) {
         const bufferedTranscript = transcriptBuffer.get(nextSequence)!;
         sortedTranscripts.push(bufferedTranscript);
         transcriptBuffer.delete(nextSequence);
-        lastProcessedSequence = nextSequence;
+        lastProcessedSequenceRef.current = nextSequence;
         nextSequence++;
       }
 
@@ -304,7 +336,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
           // Create transcript for buffer with NEW timestamp fields
           const newTranscript: Transcript = {
-            id: `${Date.now()}-${transcriptCounter++}`,
+            id: `${Date.now()}-${transcriptCounterRef.current++}`,
             text: update.text,
             timestamp: update.timestamp,
             sequence_id: update.sequence_id,
@@ -319,21 +351,22 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
           // Add to buffer
           transcriptBuffer.set(update.sequence_id, newTranscript);
-          console.log(`✅ MAIN LISTENER: Buffered transcript with sequence_id ${update.sequence_id}. Buffer size: ${transcriptBuffer.size}, Last processed: ${lastProcessedSequence}`);
+          console.log(`✅ MAIN LISTENER: Buffered transcript with sequence_id ${update.sequence_id}. Buffer size: ${transcriptBuffer.size}, Last processed: ${lastProcessedSequenceRef.current}`);
 
-          // Save to IndexedDB (non-blocking)
-          if (currentMeetingId) {
-            indexedDBService.saveTranscript(currentMeetingId, update)
+          // Save to IndexedDB (non-blocking). Read the current meeting id from the ref
+          // (not the closed-over state variable) since this effect only runs once.
+          if (currentMeetingIdRef.current) {
+            indexedDBService.saveTranscript(currentMeetingIdRef.current, update)
               .catch(err => console.warn('IndexedDB save failed:', err));
           }
 
           // Clear any existing timer and set a new one
-          if (processingTimer) {
-            clearTimeout(processingTimer);
+          if (processingTimerRef.current) {
+            clearTimeout(processingTimerRef.current);
           }
 
           // Process buffer with minimal delay for immediate UI updates (serial workers = sequential order)
-          processingTimer = setTimeout(processBufferedTranscripts, 10);
+          processingTimerRef.current = setTimeout(processBufferedTranscripts, 10);
         });
         console.log('✅ MAIN transcript listener setup complete');
       } catch (error) {
@@ -347,8 +380,9 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
     return () => {
       console.log('🧹 CLEANUP: Cleaning up MAIN transcript listener...');
-      if (processingTimer) {
-        clearTimeout(processingTimer);
+      if (processingTimerRef.current) {
+        clearTimeout(processingTimerRef.current);
+        processingTimerRef.current = undefined;
         console.log('🧹 CLEANUP: Cleared processing timer');
       }
       if (unlistenFn) {
@@ -356,7 +390,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
         console.log('🧹 CLEANUP: MAIN transcript listener cleaned up');
       }
     };
-  }, [currentMeetingId]); // Add currentMeetingId dependency
+  }, []); // Mount-once: see comment above the effect for why this must not depend on currentMeetingId
 
   // Sync transcript history and meeting name from backend on reload
   // This fixes the issue where reloading during active recording causes state desync

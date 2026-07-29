@@ -78,6 +78,9 @@ export function usePaginatedTranscripts({
             const data = await invoke<MeetingMetadata>('api_get_meeting_metadata', {
                 meetingId,
             });
+            // Drop stale responses: if the user has already navigated to a different
+            // meeting by the time this resolves, loadedMeetingIdRef.current has moved on.
+            if (loadedMeetingIdRef.current !== meetingId) return null;
             setMetadata(data);
             return data;
         } catch (err) {
@@ -103,6 +106,10 @@ export function usePaginatedTranscripts({
                     offset,
                 }
             );
+
+            // Drop stale responses: a late response for a meeting the user has already
+            // navigated away from must not overwrite what's currently on screen.
+            if (loadedMeetingIdRef.current !== meetingId) return [];
 
             const newTranscripts = response.transcripts;
 

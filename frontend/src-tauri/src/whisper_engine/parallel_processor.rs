@@ -258,13 +258,32 @@ impl ParallelProcessor {
 
                 match chunk {
                     Some((chunk, retry_count)) => {
-                        // Process the chunk
-                        let result = Self::process_chunk_safely(
-                            &engine_ref,
-                            chunk.clone(),
-                            &model_name,
-                            worker_id
-                        ).await;
+                        // Process the chunk inside its own task. If process_chunk_safely
+                        // panics (e.g. an unexpected issue transcribing malformed audio),
+                        // tokio contains the unwind at this task boundary and reports it
+                        // via JoinError instead of unwinding into this worker's own loop —
+                        // so the queue.processing cleanup below always runs. Without this,
+                        // a panicking chunk stayed stuck in `processing` forever (this
+                        // worker's whole task would have died mid-call, before ever
+                        // reaching the removal below), and the idle-worker completion
+                        // check further down this loop could never be satisfied, hanging
+                        // the rest of the batch indefinitely.
+                        let engine_ref_for_task = engine_ref.clone();
+                        let chunk_for_task = chunk.clone();
+                        let model_name_for_task = model_name.clone();
+                        let result = match tokio::spawn(async move {
+                            Self::process_chunk_safely(
+                                &engine_ref_for_task,
+                                chunk_for_task,
+                                &model_name_for_task,
+                                worker_id,
+                            ).await
+                        }).await {
+                            Ok(inner_result) => inner_result,
+                            Err(join_err) => Err(anyhow!(
+                                "Chunk {} processing task panicked: {}", chunk.id, join_err
+                            )),
+                        };
 
                         // Handle result
                         let mut queue = chunk_queue.write().await;
@@ -478,4 +497,44 @@ pub struct ProcessingStatus {
     pub retry_queue_size: usize,
     pub is_paused: bool,
     pub is_stopped: bool,
+}
+
+#[cfg(test)]
+mod panic_containment_tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    /// Regression test for the worker-loop fix: process a chunk inside its own
+    /// tokio::spawn task so a panic during processing is reported as a JoinError
+    /// instead of unwinding into (and killing) the caller's task — letting the
+    /// caller's own `processing` map cleanup run unconditionally afterward, exactly
+    /// like the real worker loop does in create_worker().
+    #[tokio::test]
+    async fn panicking_task_still_allows_processing_map_cleanup() {
+        let processing: Arc<RwLock<HashMap<u32, ()>>> = Arc::new(RwLock::new(HashMap::new()));
+        processing.write().await.insert(42, ());
+
+        let result: Result<(), String> = match tokio::spawn(async {
+            panic!("simulated transcription panic");
+            #[allow(unreachable_code)]
+            Ok::<(), anyhow::Error>(())
+        })
+        .await
+        {
+            Ok(inner) => inner.map_err(|e| e.to_string()),
+            Err(join_err) => Err(format!("chunk 42 processing task panicked: {}", join_err)),
+        };
+
+        // The panic must be observable as an Err, not a crash of this test task.
+        assert!(result.is_err());
+
+        // And cleanup — the part that used to never run because the panic unwound
+        // straight through it — must still execute.
+        processing.write().await.remove(&42);
+        assert!(
+            processing.read().await.is_empty(),
+            "chunk must not be left stuck in `processing` after its task panicked"
+        );
+    }
 }

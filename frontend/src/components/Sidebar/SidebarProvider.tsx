@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Analytics from '@/lib/analytics';
 import { invoke } from '@tauri-apps/api/core';
@@ -97,6 +97,13 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [serverAddress, setServerAddress] = useState('');
   const [transcriptServerAddress, setTranscriptServerAddress] = useState('');
   const [activeSummaryPolls, setActiveSummaryPolls] = useState<Map<string, NodeJS.Timeout>>(new Map());
+  // Mirrors activeSummaryPolls for the unmount-only cleanup effect below, so that
+  // effect can read the current set of intervals without depending on (and re-running
+  // on every change of) activeSummaryPolls itself.
+  const activeSummaryPollsRef = useRef(activeSummaryPolls);
+  useEffect(() => {
+    activeSummaryPollsRef.current = activeSummaryPolls;
+  }, [activeSummaryPolls]);
   const [folders, setFolders] = useState<OrgFolder[]>([]);
 
   // Use recording state from RecordingStateContext (single source of truth)
@@ -359,13 +366,18 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeSummaryPolls]);
 
-  // Cleanup all polling intervals on unmount
+  // Cleanup all polling intervals on unmount only. Deliberately depends on [] (not
+  // activeSummaryPolls) — depending on the map meant every time it changed (e.g.
+  // starting a poll for meeting B while meeting A was still polling), React would run
+  // the *previous* effect instance's cleanup over the *stale* map from that render,
+  // clearing intervals that were supposed to keep running. Reading from a ref instead
+  // guarantees this only fires on true unmount and always sees the live set.
   useEffect(() => {
     return () => {
       console.log('🧹 Cleaning up all summary polling intervals');
-      activeSummaryPolls.forEach(interval => clearInterval(interval));
+      activeSummaryPollsRef.current.forEach(interval => clearInterval(interval));
     };
-  }, [activeSummaryPolls]);
+  }, []);
 
 
 

@@ -83,6 +83,9 @@ impl RecordingManager {
         // The pipeline uses device kind (Bluetooth vs Wired) to apply adaptive buffering:
         // - Bluetooth: Larger buffers (80-200ms) to handle jitter
         // - Wired: Smaller buffers (20-50ms) for low latency
+        let mic_enabled = microphone_device.is_some();
+        let system_enabled = system_device.is_some();
+
         let (mic_name, mic_kind) = if let Some(ref mic) = microphone_device {
             let device_kind = super::device_detection::InputDeviceKind::detect(&mic.name, 512, 48000);
             (mic.name.clone(), device_kind)
@@ -116,6 +119,8 @@ impl RecordingManager {
             mic_kind,
             sys_name,
             sys_kind,
+            mic_enabled,
+            system_enabled,
         )?;
 
         // Give the pipeline a moment to fully initialize before starting streams

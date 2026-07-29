@@ -18,31 +18,41 @@ use super::vad::{ContinuousVadProcessor};
 struct AudioMixerRingBuffer {
     mic_buffer: VecDeque<f32>,
     system_buffer: VecDeque<f32>,
-    window_size_samples: usize,  // Fixed mixing window (e.g., 50ms)
-    max_buffer_size: usize,  // Safety limit (e.g., 100ms)
+    window_size_samples: usize,  // Fixed mixing window, currently tuned to 600ms (see new())
+    max_buffer_size: usize,  // Safety limit, currently 8x the window (4.8s)
+    // Which sides of the mix are actually expected to produce data this session.
+    // A mic-only or system-only recording must still be able to mix/flush using just
+    // the one active buffer instead of waiting forever on a side that was never enabled.
+    mic_enabled: bool,
+    system_enabled: bool,
 }
 
 impl AudioMixerRingBuffer {
-    fn new(sample_rate: u32) -> Self {
-        // Use 50ms windows for mixing
+    fn new(sample_rate: u32, mic_enabled: bool, system_enabled: bool) -> Self {
+        // NOTE: despite the variable name, this is intentionally NOT 50ms — see the
+        // CRITICAL FIX comment below. 600ms/4.8s were empirically tuned to absorb real
+        // Core Audio/system-audio jitter; don't "fix" these back down to the smaller
+        // values without testing on real hardware.
         let window_ms = 600.0;
         let window_size_samples = (sample_rate as f32 * window_ms / 1000.0) as usize;
 
-        // CRITICAL FIX: Increase max buffer to 400ms for system audio stability
+        // CRITICAL FIX: Increase max buffer to 8x the window for system audio stability
         // System audio (especially Core Audio on macOS) can have significant jitter
         // due to sample-by-sample streaming → batching → channel transmission
         // Accounts for: RNNoise buffering + Core Audio jitter + processing delays
-        let max_buffer_size = window_size_samples * 8;  // 400ms (was 200ms)
+        let max_buffer_size = window_size_samples * 8;
 
-        info!("🔊 Ring buffer initialized: window={}ms ({} samples), max={}ms ({} samples)",
+        info!("🔊 Ring buffer initialized: window={}ms ({} samples), max={}ms ({} samples), mic_enabled={}, system_enabled={}",
               window_ms, window_size_samples,
-              window_ms * 8.0, max_buffer_size);
+              window_ms * 8.0, max_buffer_size, mic_enabled, system_enabled);
 
         Self {
             mic_buffer: VecDeque::with_capacity(max_buffer_size),
             system_buffer: VecDeque::with_capacity(max_buffer_size),
             window_size_samples,
             max_buffer_size,
+            mic_enabled,
+            system_enabled,
         }
     }
 
@@ -85,8 +95,30 @@ impl AudioMixerRingBuffer {
     }
 
     fn can_mix(&self) -> bool {
-        self.mic_buffer.len() >= self.window_size_samples ||
-        self.system_buffer.len() >= self.window_size_samples
+        // When both mic and system audio are active, require BOTH buffers to reach a
+        // full window before mixing — mixing as soon as EITHER side is ready (the old
+        // behavior) meant the lagging side was constantly force-drained and zero-padded
+        // under completely normal jitter (system audio routes through an extra OS
+        // loopback layer and is rarely in lockstep with the mic), producing audible
+        // dropouts/glitches on whichever side happened to be behind.
+        //
+        // Exception: if one side has piled all the way up to max_buffer_size while the
+        // other still isn't ready, that's not jitter anymore — the other stream has
+        // stalled or died. Fall back to mixing anyway (extract_window() zero-pads the
+        // short side) so a dead stream can't block mixing forever and silently eat the
+        // healthy side's audio via the overflow-drop path in add_samples().
+        match (self.mic_enabled, self.system_enabled) {
+            (true, true) => {
+                let both_ready = self.mic_buffer.len() >= self.window_size_samples
+                    && self.system_buffer.len() >= self.window_size_samples;
+                let one_side_stalled = self.mic_buffer.len() >= self.max_buffer_size
+                    || self.system_buffer.len() >= self.max_buffer_size;
+                both_ready || one_side_stalled
+            }
+            (true, false) => self.mic_buffer.len() >= self.window_size_samples,
+            (false, true) => self.system_buffer.len() >= self.window_size_samples,
+            (false, false) => false,
+        }
     }
 
     fn extract_window(&mut self) -> Option<(Vec<f32>, Vec<f32>)> {
@@ -707,6 +739,8 @@ impl AudioPipeline {
         mic_device_kind: super::device_detection::InputDeviceKind,
         system_device_name: String,
         system_device_kind: super::device_detection::InputDeviceKind,
+        mic_enabled: bool,
+        system_enabled: bool,
     ) -> Result<Self> {
         // Log device characteristics for adaptive buffering
         info!("🎛️ AudioPipeline initializing with device characteristics:");
@@ -738,7 +772,7 @@ impl AudioPipeline {
         };
 
         // Initialize professional audio mixing components
-        let ring_buffer = AudioMixerRingBuffer::new(sample_rate);
+        let ring_buffer = AudioMixerRingBuffer::new(sample_rate, mic_enabled, system_enabled);
         let mixer = ProfessionalAudioMixer::new(sample_rate);
 
         // Note: target_chunk_duration_ms is ignored - VAD controls segmentation now
@@ -966,6 +1000,8 @@ impl AudioPipelineManager {
         mic_device_kind: super::device_detection::InputDeviceKind,
         system_device_name: String,
         system_device_kind: super::device_detection::InputDeviceKind,
+        mic_enabled: bool,
+        system_enabled: bool,
     ) -> Result<()> {
         // Log device information for adaptive buffering
         info!("🎙️ Starting pipeline with device info:");
@@ -989,6 +1025,8 @@ impl AudioPipelineManager {
             mic_device_kind,
             system_device_name,
             system_device_kind,
+            mic_enabled,
+            system_enabled,
         )?;
 
         // CRITICAL FIX: Connect recording sender to receive pre-mixed audio
@@ -1076,5 +1114,45 @@ impl AudioPipelineManager {
 impl Default for AudioPipelineManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod ring_buffer_tests {
+    use super::*;
+
+    #[test]
+    fn does_not_mix_until_both_sides_ready_when_both_enabled() {
+        let mut rb = AudioMixerRingBuffer::new(48_000, true, true);
+        // Mic reaches a full window, system has nothing yet — under the old OR logic
+        // this alone used to trigger mixing (force-draining/padding the system side).
+        rb.add_samples(DeviceType::Microphone, vec![0.0; rb.window_size_samples]);
+        assert!(!rb.can_mix(), "must wait for the system side under normal jitter");
+
+        rb.add_samples(DeviceType::System, vec![0.0; rb.window_size_samples]);
+        assert!(rb.can_mix(), "both sides ready — should mix now");
+    }
+
+    #[test]
+    fn mixes_once_stalled_side_hits_max_buffer_even_if_other_never_arrives() {
+        let mut rb = AudioMixerRingBuffer::new(48_000, true, true);
+        // Mic keeps producing and piles all the way up to the safety cap; system audio
+        // never shows up (device died/disconnected). Must not block mixing forever.
+        rb.add_samples(DeviceType::Microphone, vec![0.0; rb.max_buffer_size]);
+        assert!(rb.can_mix(), "a stalled peer must not block mixing indefinitely");
+    }
+
+    #[test]
+    fn mic_only_session_mixes_off_mic_buffer_alone() {
+        let mut rb = AudioMixerRingBuffer::new(48_000, true, false);
+        rb.add_samples(DeviceType::Microphone, vec![0.0; rb.window_size_samples]);
+        assert!(rb.can_mix(), "mic-only sessions must not wait on a system buffer that will never fill");
+    }
+
+    #[test]
+    fn system_only_session_mixes_off_system_buffer_alone() {
+        let mut rb = AudioMixerRingBuffer::new(48_000, false, true);
+        rb.add_samples(DeviceType::System, vec![0.0; rb.window_size_samples]);
+        assert!(rb.can_mix(), "system-only sessions must not wait on a mic buffer that will never fill");
     }
 }

@@ -77,6 +77,30 @@ export function useRecordingStop(
   // Promise to track recording-stopped event data (fixes race condition with recording-stop-complete)
   const recordingStoppedDataRef = useRef<Promise<void> | null>(null);
 
+  // Tracks the pending "navigate to meeting details + reset to IDLE" timeout scheduled
+  // after a successful save (see handleRecordingStop below). If a new recording starts
+  // inside that window, the effect further down clears it — otherwise it fires mid-new-
+  // session and wipes the new recording's already-accumulated transcripts.
+  const postStopNavigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cancel any pending post-stop navigation/reset if a new recording starts before it fires.
+  useEffect(() => {
+    if (status === RecordingStatus.RECORDING && postStopNavigationTimeoutRef.current) {
+      clearTimeout(postStopNavigationTimeoutRef.current);
+      postStopNavigationTimeoutRef.current = null;
+    }
+  }, [status]);
+
+  // Also clear it on unmount so it can't fire against an unmounted view.
+  useEffect(() => {
+    return () => {
+      if (postStopNavigationTimeoutRef.current) {
+        clearTimeout(postStopNavigationTimeoutRef.current);
+        postStopNavigationTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   // Set up recording-stopped listener for meeting navigation
   useEffect(() => {
     let unlistenFn: (() => void) | undefined;
@@ -359,8 +383,10 @@ export function useRecordingStop(
             duration: 10000,
           });
 
-          // Auto-navigate after a short delay with source parameter
-          setTimeout(() => {
+          // Auto-navigate after a short delay with source parameter. Tracked in a ref so
+          // it can be cancelled above if a new recording starts before it fires.
+          postStopNavigationTimeoutRef.current = setTimeout(() => {
+            postStopNavigationTimeoutRef.current = null;
             router.push(`/meeting-details?id=${meetingId}&source=recording`);
             clearTranscripts()
             Analytics.trackPageView('meeting_details');

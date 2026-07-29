@@ -171,8 +171,24 @@ impl TranscriptsRepository {
 
         match transcript_lower.find(&query_lower) {
             Some(match_index) => {
-                let start_index = match_index.saturating_sub(100);
-                let end_index = (match_index + query.len() + 100).min(transcript.len());
+                // `match_index` is a byte offset into `transcript_lower`, which is a
+                // lowercased copy of `transcript` — lowercasing can change a character's
+                // UTF-8 byte length (e.g. 'İ' -> "i̇"), so byte offsets from
+                // `transcript_lower` aren't guaranteed to land on a char boundary in
+                // `transcript`. Walk outward to the nearest valid boundaries before
+                // slicing `transcript`, instead of slicing at raw byte offsets, which
+                // panics on any transcript with multi-byte characters near a match.
+                let raw_start = match_index.saturating_sub(100);
+                let raw_end = (match_index + query.len() + 100).min(transcript.len());
+
+                let mut start_index = raw_start;
+                while start_index > 0 && !transcript.is_char_boundary(start_index) {
+                    start_index -= 1;
+                }
+                let mut end_index = raw_end;
+                while end_index < transcript.len() && !transcript.is_char_boundary(end_index) {
+                    end_index += 1;
+                }
 
                 let mut context = String::new();
                 if start_index > 0 {
@@ -186,5 +202,29 @@ impl TranscriptsRepository {
             }
             None => transcript.chars().take(200).collect(), // Fallback to the start of the transcript
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_match_context_does_not_panic_on_multibyte_chars_near_match() {
+        // A match near a run of multi-byte characters (é is 2 bytes in UTF-8) used to
+        // panic when start_index/end_index landed mid-character.
+        let filler_a: String = std::iter::repeat('é').take(60).collect();
+        let filler_b: String = std::iter::repeat('日').take(60).collect();
+        let transcript = format!("{}keyword{}", filler_a, filler_b);
+
+        let context = TranscriptsRepository::get_match_context(&transcript, "keyword");
+        assert!(context.contains("keyword"));
+    }
+
+    #[test]
+    fn get_match_context_falls_back_to_start_when_no_match() {
+        let transcript = "hello world";
+        let context = TranscriptsRepository::get_match_context(transcript, "missing");
+        assert_eq!(context, "hello world");
     }
 }
