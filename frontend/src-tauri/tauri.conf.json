@@ -39,20 +39,11 @@
             "capabilities": [
                 {
                     "identifier": "main",
-                    "description": "Main window capability with file system and media access",
+                    "description": "Main window capability. File system access is handled entirely by custom Rust commands (invoke), not the generic fs plugin — tauri_plugin_fs is never registered in the Builder, so the fs:* permission family that used to be declared here was dead configuration that only added unnecessary attack surface (fs:read-all/fs:write-all in particular) if the plugin were ever registered later without re-auditing this file.",
                     "windows": [
                         "main"
                     ],
                     "permissions": [
-                        "fs:default",
-                        "fs:allow-read-file",
-                        "fs:read-all",
-                        "fs:write-all",
-                        "fs:allow-app-read",
-                        "fs:allow-app-write",
-                        "fs:allow-download-write",
-                        "fs:allow-download-read",
-                        "fs:scope-download",
                         "core:path:default",
                         "core:event:default",
                         "core:window:default",
@@ -65,15 +56,7 @@
                         "notification:default",
                         "notification:allow-is-permission-granted",
                         "updater:default",
-                        "process:default",
-                        {
-                            "identifier": "fs:scope",
-                            "allow": [
-                                {
-                                    "path": "$APPDATA/*"
-                                }
-                            ]
-                        }
+                        "process:default"
                     ]
                 }
             ]

@@ -1177,21 +1177,24 @@ pub async fn debug_backend_connection<R: Runtime>(app: AppHandle<R>) -> Result<S
 
 #[tauri::command]
 pub async fn open_external_url(url: String) -> Result<(), String> {
-    use std::process::Command;
-
-    let result = if cfg!(target_os = "windows") {
-        Command::new("cmd").args(&["/C", "start", &url]).output()
-    } else if cfg!(target_os = "macos") {
-        Command::new("open").arg(&url).output()
-    } else {
-        // Linux and other Unix-like systems
-        Command::new("xdg-open").arg(&url).output()
-    };
-
-    match result {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("Failed to open URL: {}", e)),
+    // Only ever open http(s) links here — reject file:// and custom app-registered
+    // schemes, which could otherwise be used to launch arbitrary local
+    // executables/handlers via a crafted "url" from e.g. AI-generated content.
+    let scheme_ok = url.starts_with("http://") || url.starts_with("https://");
+    if !scheme_ok {
+        return Err(format!("Refusing to open non-http(s) URL: {}", url));
     }
+
+    // Use the `open` crate instead of shelling out to `cmd /C start` on Windows: cmd.exe
+    // re-parses its entire argument line as a script, so `&`/`|`/`^` in `url` would be
+    // interpreted as shell control operators even though it arrives as a single argv
+    // element — passing individual Command::arg()s does not protect against this once
+    // cmd.exe itself is the process being invoked. `open` calls the OS's native
+    // "open with default handler" API directly, without an intermediate shell.
+    tokio::task::spawn_blocking(move || open::that(&url))
+        .await
+        .map_err(|e| format!("Failed to open URL: {}", e))?
+        .map_err(|e| format!("Failed to open URL: {}", e))
 }
 
 // ===== CUSTOM OPENAI API COMMANDS =====

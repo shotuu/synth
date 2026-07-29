@@ -67,6 +67,11 @@ impl SettingsRepository {
         Ok(())
     }
 
+    /// Namespace used for summary/LLM provider keys in the OS keychain (see
+    /// database::keychain) — distinct from "transcript" since e.g. "groq" and "openai"
+    /// exist as both summary providers and transcript providers with separate keys.
+    const KEYCHAIN_NAMESPACE_SUMMARY: &'static str = "summary";
+
     pub async fn save_api_key(
         pool: &SqlitePool,
         provider: &str,
@@ -93,16 +98,22 @@ impl SettingsRepository {
             }
         };
 
+        crate::database::keychain::save_secret(Self::KEYCHAIN_NAMESPACE_SUMMARY, provider, api_key)
+            .map_err(sqlx::Error::Protocol)?;
+
+        // Defense in depth: make sure no plaintext copy lingers in the DB row (also
+        // blanks out any pre-migration legacy value from before this column existed
+        // only as a migration source — see get_api_key).
         let query = format!(
             r#"
             INSERT INTO settings (id, provider, model, whisperModel, "{}")
-            VALUES ('1', 'openai', 'gpt-4o-2024-11-20', 'large-v3', $1)
+            VALUES ('1', 'openai', 'gpt-4o-2024-11-20', 'large-v3', NULL)
             ON CONFLICT(id) DO UPDATE SET
-                "{}" = $1
+                "{}" = NULL
             "#,
             api_key_column, api_key_column
         );
-        sqlx::query(&query).bind(api_key).execute(pool).await?;
+        sqlx::query(&query).execute(pool).await?;
 
         Ok(())
     }
@@ -131,12 +142,40 @@ impl SettingsRepository {
             }
         };
 
+        if let Some(key) = crate::database::keychain::get_secret(Self::KEYCHAIN_NAMESPACE_SUMMARY, provider)
+            .map_err(sqlx::Error::Protocol)?
+        {
+            return Ok(Some(key));
+        }
+
+        // Nothing in the keychain yet — check for a pre-existing plaintext key left over
+        // from before this migration and, if found, move it into the keychain so this
+        // only ever happens once per provider.
         let query = format!(
             "SELECT {} FROM settings WHERE id = '1' LIMIT 1",
             api_key_column
         );
-        let api_key = sqlx::query_scalar(&query).fetch_optional(pool).await?;
-        Ok(api_key)
+        let legacy_key: Option<String> = sqlx::query_scalar(&query).fetch_optional(pool).await?;
+        let Some(legacy_key) = legacy_key.filter(|k| !k.is_empty()) else {
+            return Ok(None);
+        };
+
+        if let Err(e) =
+            crate::database::keychain::save_secret(Self::KEYCHAIN_NAMESPACE_SUMMARY, provider, &legacy_key)
+        {
+            log::warn!(
+                "Failed to migrate legacy {} API key into system keychain, leaving it in the database for now: {}",
+                provider, e
+            );
+            return Ok(Some(legacy_key));
+        }
+
+        let blank_query = format!(r#"UPDATE settings SET "{}" = NULL WHERE id = '1'"#, api_key_column);
+        if let Err(e) = sqlx::query(&blank_query).execute(pool).await {
+            log::warn!("Migrated {} API key to keychain but failed to blank the database column: {}", provider, e);
+        }
+
+        Ok(Some(legacy_key))
     }
 
     pub async fn get_transcript_config(
@@ -172,6 +211,10 @@ impl SettingsRepository {
         Ok(())
     }
 
+    /// Namespace for transcript-provider keys in the OS keychain — see
+    /// KEYCHAIN_NAMESPACE_SUMMARY for why this needs to be distinct.
+    const KEYCHAIN_NAMESPACE_TRANSCRIPT: &'static str = "transcript";
+
     pub async fn save_transcript_api_key(
         pool: &SqlitePool,
         provider: &str,
@@ -191,16 +234,20 @@ impl SettingsRepository {
             }
         };
 
+        crate::database::keychain::save_secret(Self::KEYCHAIN_NAMESPACE_TRANSCRIPT, provider, api_key)
+            .map_err(sqlx::Error::Protocol)?;
+
+        // Defense in depth: don't leave a plaintext copy in the DB row.
         let query = format!(
             r#"
             INSERT INTO transcript_settings (id, provider, model, "{}")
-            VALUES ('1', 'parakeet', '{}', $1)
+            VALUES ('1', 'parakeet', '{}', NULL)
             ON CONFLICT(id) DO UPDATE SET
-                "{}" = $1
+                "{}" = NULL
             "#,
             api_key_column, crate::config::DEFAULT_PARAKEET_MODEL, api_key_column
         );
-        sqlx::query(&query).bind(api_key).execute(pool).await?;
+        sqlx::query(&query).execute(pool).await?;
 
         Ok(())
     }
@@ -223,12 +270,47 @@ impl SettingsRepository {
             }
         };
 
+        if let Some(key) =
+            crate::database::keychain::get_secret(Self::KEYCHAIN_NAMESPACE_TRANSCRIPT, provider)
+                .map_err(sqlx::Error::Protocol)?
+        {
+            return Ok(Some(key));
+        }
+
+        // Migrate a pre-existing plaintext key, if any, exactly like get_api_key does.
         let query = format!(
             "SELECT {} FROM transcript_settings WHERE id = '1' LIMIT 1",
             api_key_column
         );
-        let api_key = sqlx::query_scalar(&query).fetch_optional(pool).await?;
-        Ok(api_key)
+        let legacy_key: Option<String> = sqlx::query_scalar(&query).fetch_optional(pool).await?;
+        let Some(legacy_key) = legacy_key.filter(|k| !k.is_empty()) else {
+            return Ok(None);
+        };
+
+        if let Err(e) = crate::database::keychain::save_secret(
+            Self::KEYCHAIN_NAMESPACE_TRANSCRIPT,
+            provider,
+            &legacy_key,
+        ) {
+            log::warn!(
+                "Failed to migrate legacy {} transcript API key into system keychain, leaving it in the database for now: {}",
+                provider, e
+            );
+            return Ok(Some(legacy_key));
+        }
+
+        let blank_query = format!(
+            r#"UPDATE transcript_settings SET "{}" = NULL WHERE id = '1'"#,
+            api_key_column
+        );
+        if let Err(e) = sqlx::query(&blank_query).execute(pool).await {
+            log::warn!(
+                "Migrated {} transcript API key to keychain but failed to blank the database column: {}",
+                provider, e
+            );
+        }
+
+        Ok(Some(legacy_key))
     }
 
     pub async fn delete_api_key(
@@ -256,6 +338,9 @@ impl SettingsRepository {
                 ))
             }
         };
+
+        crate::database::keychain::delete_secret(Self::KEYCHAIN_NAMESPACE_SUMMARY, provider)
+            .map_err(sqlx::Error::Protocol)?;
 
         let query = format!(
             "UPDATE settings SET {} = NULL WHERE id = '1'",
