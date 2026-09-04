@@ -201,13 +201,35 @@ async fn resolve_cleanup_config<R: Runtime>(
     let input_token_budget = ((context_tokens as f64) / 2.2).floor().max(200.0);
     let char_budget = (input_token_budget * chars_per_token).floor() as usize;
 
+    // The response must fit in the same max_tokens cap sent on the request,
+    // or the provider truncates it mid-turn and parse_cleaned_chunk's exact
+    // marker-count check hard-fails the whole export. generate_summary's own
+    // fallback (8192, for Claude) is sized for short summarization output,
+    // not cleanup's roughly-1:1 output — a chunk built from a 100k-token
+    // cloud "context_tokens" assumption above easily produces far more.
+    // Explicitly size the request's max_tokens off the same input budget
+    // (with headroom) so the two stay consistent, unless the user set an
+    // explicit CustomOpenAI override. Clamped to 8192: most cloud APIs
+    // (Claude, OpenAI, Groq) reject a max_tokens above their standard cap
+    // with a hard 400 rather than honoring it, and this only feeds the two
+    // providers (Claude, CustomOpenAI-without-override) that actually read
+    // it — see generate_summary in llm_client.rs. A chunk whose real cleaned
+    // output would exceed this still truncates; char_budget above already
+    // keeps individual chunks well short of that in the common case.
+    let derived_max_tokens = ((input_token_budget * 1.2).ceil() as u32).clamp(512, 8192);
+    let max_tokens = custom_openai
+        .as_ref()
+        .and_then(|c| c.max_tokens)
+        .map(|t| t as u32)
+        .or(Some(derived_max_tokens));
+
     Ok(CleanupConfig {
         provider,
         model_name: setting.model.clone(),
         api_key: final_api_key,
         ollama_endpoint: setting.ollama_endpoint.clone(),
         custom_openai_endpoint: custom_openai.as_ref().map(|c| c.endpoint.clone()),
-        max_tokens: custom_openai.as_ref().and_then(|c| c.max_tokens).map(|t| t as u32),
+        max_tokens,
         temperature: custom_openai.as_ref().and_then(|c| c.temperature),
         top_p: custom_openai.as_ref().and_then(|c| c.top_p),
         app_data_dir: app.path().app_data_dir().ok(),
