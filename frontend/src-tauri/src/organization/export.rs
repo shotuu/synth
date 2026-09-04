@@ -4,7 +4,7 @@
 /// (fetch_export_data) and, for PDF/DOCX, one simplified block model
 /// (parse_markdown_blocks) since those renderers need structured elements
 /// rather than raw markdown/HTML.
-use pulldown_cmark::{html, Parser};
+use pulldown_cmark::{html, Event, Parser};
 use sqlx::SqlitePool;
 
 use crate::database::repositories::attachment::AttachmentsRepository;
@@ -75,9 +75,24 @@ fn escape_html(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Renders markdown to HTML for the self-contained export page. The source
+/// text is LLM-generated (summary/notes) and can echo back literal HTML
+/// found in meeting content (a pasted email, an attached doc) verbatim.
+/// pulldown-cmark has no option to suppress raw HTML passthrough, so any
+/// `Event::Html`/`Event::InlineHtml` node is neutralized by escaping it as
+/// plain text instead of being handed to `html::push_html` unescaped -
+/// otherwise this would be a stored-XSS vector in a file meant to be opened
+/// in a browser or shared with others.
 fn markdown_to_html(markdown: &str) -> String {
     let markdown = normalize_pseudo_headings(markdown);
-    let parser = Parser::new_ext(&markdown, cmark_options());
+    let parser = Parser::new_ext(&markdown, cmark_options()).map(|event| match event {
+        // html::push_html escapes Event::Text itself, so pass the raw
+        // string through as-is rather than pre-escaping it (which would
+        // double-escape into `&amp;lt;`).
+        Event::Html(raw) => Event::Text(raw),
+        Event::InlineHtml(raw) => Event::Text(raw),
+        other => other,
+    });
     let mut out = String::new();
     html::push_html(&mut out, parser);
     out
@@ -313,6 +328,24 @@ mod tests {
         assert!(!html.contains(">mic<"));
         assert!(html.contains("[00:00]"));
         assert!(html.contains("[00:03]"));
+    }
+
+    /// LLM-generated summary/notes markdown can contain literal HTML echoed
+    /// back from meeting content (a pasted email, an attached doc). Raw HTML
+    /// in the markdown source must not reach the exported page unescaped.
+    #[test]
+    fn raw_html_in_markdown_is_escaped_not_passed_through() {
+        let mut data = sample_data();
+        data.summary_markdown =
+            Some("Summary\n\n<script>alert(1)</script>\n\nAnd inline <img src=x onerror=alert(2)> too.".to_string());
+        data.user_notes_markdown = Some("<b onclick=\"evil()\">notes</b>".to_string());
+
+        let html = render_html(&data);
+        assert!(!html.contains("<script>"), "got: {html}");
+        assert!(!html.contains("<img "), "got: {html}");
+        assert!(!html.contains("<b "), "got: {html}");
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&lt;img src=x onerror=alert(2)&gt;"));
     }
 
     /// Real model output uses whole-line "**Title**" instead of an ATX

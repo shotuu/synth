@@ -52,6 +52,10 @@ pub fn save_custom_template(id: &str, json_content: &str) -> Result<(), String> 
 /// since they aren't in this directory -- deleting a nonexistent file is
 /// reported as "not found" rather than silently succeeding.
 pub fn delete_custom_template(id: &str) -> Result<bool, String> {
+    if id.trim().is_empty() || id.contains(['/', '\\', '.']) {
+        return Err("Template id must be non-empty and contain no path separators".to_string());
+    }
+
     let dir = get_custom_templates_dir()
         .ok_or_else(|| "Could not resolve custom templates directory".to_string())?;
     let path = dir.join(format!("{}.json", id));
@@ -303,6 +307,13 @@ mod tests {
         assert!(save_custom_template("../evil", json).is_err());
         assert!(save_custom_template("nested/path", json).is_err());
         assert!(save_custom_template("", json).is_err());
+    }
+
+    #[test]
+    fn delete_custom_template_rejects_path_traversal_ids() {
+        assert!(delete_custom_template("../evil").is_err());
+        assert!(delete_custom_template("nested/path").is_err());
+        assert!(delete_custom_template("").is_err());
     }
 
     #[test]
