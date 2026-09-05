@@ -105,16 +105,23 @@ impl HardwareProfile {
         (false, GpuType::None)
     }
 
-    /// Detect available system memory in GB
+    /// Detect available system memory in GB. `MEMORY_GB` overrides detection
+    /// for manual tuning/testing; otherwise reads real system memory via
+    /// sysinfo (same crate whisper_engine::system_monitor uses for live
+    /// resource checks) rather than assuming a fixed amount — a stub
+    /// default here would misclassify performance_tier for any machine
+    /// that isn't coincidentally close to that guess.
     fn detect_memory_gb() -> u8 {
-        // Simple memory detection - could be enhanced with system-specific calls
-        match std::env::var("MEMORY_GB") {
-            Ok(mem_str) => mem_str.parse().unwrap_or(8),
-            Err(_) => {
-                // Default estimates based on common configurations
-                8 // Conservative default
+        if let Ok(mem_str) = std::env::var("MEMORY_GB") {
+            if let Ok(gb) = mem_str.parse() {
+                return gb;
             }
         }
+
+        let mut system = sysinfo::System::new();
+        system.refresh_memory();
+        let total_gb = system.total_memory() / (1024 * 1024 * 1024);
+        total_gb.clamp(1, u8::MAX as u64) as u8
     }
 
     /// Calculate performance tier based on hardware
@@ -305,6 +312,19 @@ mod tests {
 
         let high_tier = HardwareProfile::calculate_performance_tier(8, &GpuType::Metal, 16);
         assert_eq!(high_tier, PerformanceTier::Ultra);
+    }
+
+    #[test]
+    fn detects_real_system_memory_not_a_hardcoded_stub() {
+        // A machine with less than 1GB or more than a few TB of RAM would be
+        // bizarre for this to run on - this just confirms detect_memory_gb
+        // reads something plausible rather than always returning a fixed
+        // constant regardless of actual hardware.
+        let mut system = sysinfo::System::new();
+        system.refresh_memory();
+        let expected_gb = (system.total_memory() / (1024 * 1024 * 1024)).clamp(1, u8::MAX as u64) as u8;
+
+        assert_eq!(HardwareProfile::detect_memory_gb(), expected_gb);
     }
 
     #[test]
