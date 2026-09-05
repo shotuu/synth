@@ -319,6 +319,8 @@ impl SettingsRepository {
     ) -> std::result::Result<(), sqlx::Error> {
         // Custom OpenAI uses JSON config - clear the entire config
         if provider == "custom-openai" {
+            crate::database::keychain::delete_secret(Self::KEYCHAIN_NAMESPACE_SUMMARY, Self::CUSTOM_OPENAI_PROVIDER)
+                .map_err(sqlx::Error::Protocol)?;
             sqlx::query("UPDATE settings SET customOpenAIConfig = NULL WHERE id = '1'")
                 .execute(pool)
                 .await?;
@@ -353,7 +355,15 @@ impl SettingsRepository {
 
     // ===== CUSTOM OPENAI CONFIG METHODS =====
 
-    /// Gets the custom OpenAI configuration from JSON
+    /// Provider name used for custom-openai's entry in the summary keychain
+    /// namespace — kept as a constant since it's matched against elsewhere.
+    const CUSTOM_OPENAI_PROVIDER: &'static str = "custom-openai";
+
+    /// Gets the custom OpenAI configuration. The API key is never read from
+    /// the `customOpenAIConfig` JSON column directly — it's resolved from
+    /// the OS keychain (see database::keychain), with a one-time migration
+    /// of any pre-existing plaintext key found in the JSON, exactly like
+    /// get_api_key does for the other providers.
     ///
     /// # Returns
     /// * `Ok(Some(CustomOpenAIConfig))` - Config exists and is valid JSON
@@ -375,27 +385,64 @@ impl SettingsRepository {
         .fetch_optional(pool)
         .await?;
 
-        match row {
-            Some(record) => {
-                let config_json: Option<String> = record.get("customOpenAIConfig");
+        let Some(record) = row else { return Ok(None) };
+        let config_json: Option<String> = record.get("customOpenAIConfig");
+        let Some(json) = config_json else { return Ok(None) };
 
-                if let Some(json) = config_json {
-                    // Parse JSON into CustomOpenAIConfig
-                    let config: CustomOpenAIConfig = serde_json::from_str(&json)
-                        .map_err(|e| sqlx::Error::Protocol(
-                            format!("Invalid JSON in customOpenAIConfig: {}", e).into()
-                        ))?;
+        let mut config: CustomOpenAIConfig = serde_json::from_str(&json)
+            .map_err(|e| sqlx::Error::Protocol(
+                format!("Invalid JSON in customOpenAIConfig: {}", e).into()
+            ))?;
 
-                    Ok(Some(config))
-                } else {
-                    Ok(None)
-                }
-            }
-            None => Ok(None),
+        if let Some(key) = crate::database::keychain::get_secret(
+            Self::KEYCHAIN_NAMESPACE_SUMMARY,
+            Self::CUSTOM_OPENAI_PROVIDER,
+        )
+        .map_err(sqlx::Error::Protocol)?
+        {
+            config.api_key = Some(key);
+            return Ok(Some(config));
         }
+
+        // Nothing in the keychain yet — migrate a pre-existing plaintext key
+        // found in the JSON column, if any, so this only ever happens once.
+        let Some(legacy_key) = config.api_key.take().filter(|k| !k.is_empty()) else {
+            return Ok(Some(config));
+        };
+
+        if let Err(e) = crate::database::keychain::save_secret(
+            Self::KEYCHAIN_NAMESPACE_SUMMARY,
+            Self::CUSTOM_OPENAI_PROVIDER,
+            &legacy_key,
+        ) {
+            log::warn!(
+                "Failed to migrate legacy custom-openai API key into system keychain, leaving it in the database for now: {}",
+                e
+            );
+            config.api_key = Some(legacy_key);
+            return Ok(Some(config));
+        }
+
+        // Blank the plaintext key out of the JSON column now that it lives in the keychain.
+        let mut blanked = config.clone();
+        blanked.api_key = None;
+        if let Ok(blanked_json) = serde_json::to_string(&blanked) {
+            if let Err(e) = sqlx::query("UPDATE settings SET customOpenAIConfig = $1 WHERE id = '1'")
+                .bind(blanked_json)
+                .execute(pool)
+                .await
+            {
+                log::warn!("Migrated custom-openai API key to keychain but failed to blank the database column: {}", e);
+            }
+        }
+
+        config.api_key = Some(legacy_key);
+        Ok(Some(config))
     }
 
-    /// Saves the custom OpenAI configuration as JSON
+    /// Saves the custom OpenAI configuration. The API key is written to the
+    /// OS keychain, never to the `customOpenAIConfig` JSON column — see
+    /// get_custom_openai_config.
     ///
     /// # Arguments
     /// * `pool` - Database connection pool
@@ -408,8 +455,28 @@ impl SettingsRepository {
         pool: &SqlitePool,
         config: &CustomOpenAIConfig,
     ) -> std::result::Result<(), sqlx::Error> {
-        // Serialize config to JSON
-        let config_json = serde_json::to_string(config)
+        match config.api_key.as_ref().filter(|k| !k.is_empty()) {
+            Some(key) => {
+                crate::database::keychain::save_secret(
+                    Self::KEYCHAIN_NAMESPACE_SUMMARY,
+                    Self::CUSTOM_OPENAI_PROVIDER,
+                    key,
+                )
+                .map_err(sqlx::Error::Protocol)?;
+            }
+            None => {
+                crate::database::keychain::delete_secret(
+                    Self::KEYCHAIN_NAMESPACE_SUMMARY,
+                    Self::CUSTOM_OPENAI_PROVIDER,
+                )
+                .map_err(sqlx::Error::Protocol)?;
+            }
+        }
+
+        // Never persist the plaintext key in the DB row.
+        let mut db_config = config.clone();
+        db_config.api_key = None;
+        let config_json = serde_json::to_string(&db_config)
             .map_err(|e| sqlx::Error::Protocol(
                 format!("Failed to serialize config to JSON: {}", e).into()
             ))?;

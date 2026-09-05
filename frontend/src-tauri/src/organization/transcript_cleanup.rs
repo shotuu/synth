@@ -157,7 +157,13 @@ async fn resolve_cleanup_config<R: Runtime>(
         })?;
 
     let provider = LLMProvider::from_str(&setting.provider)?;
-    let custom_openai = setting.get_custom_openai_config();
+    // Not setting.get_custom_openai_config() - that only parses the JSON
+    // column, which never carries a plaintext key once one has been
+    // migrated into the OS keychain. This goes through the keychain-aware
+    // repository method instead, same as api_key resolution below.
+    let custom_openai = SettingsRepository::get_custom_openai_config(pool)
+        .await
+        .map_err(|e| format!("Failed to load custom OpenAI config: {}", e))?;
 
     let api_key = if matches!(provider, LLMProvider::Ollama | LLMProvider::BuiltInAI | LLMProvider::CustomOpenAI)
     {
