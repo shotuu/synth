@@ -109,6 +109,16 @@ impl ContinuousVadProcessor {
         Ok(completed_segments)
     }
 
+    /// Compute the moving-average anti-alias filter length for downsampling
+    /// at the given ratio (input_rate / 16000). A moving average of length N
+    /// has its first spectral null around input_rate / N, so to keep that
+    /// null near `cutoff_freq * output_nyquist` (output_nyquist = 8kHz) the
+    /// length must scale with the ratio: N = ratio * 2.0 / cutoff_freq.
+    fn antialias_filter_size(ratio: f64, cutoff_freq: f64) -> usize {
+        let filter_size = (ratio * 2.0 / cutoff_freq).round() as usize;
+        std::cmp::max(1, std::cmp::min(filter_size, 32))
+    }
+
     /// Improved resampling from input sample rate to 16kHz with anti-aliasing
     /// Uses linear interpolation and basic low-pass filtering for better quality
     fn resample_to_16k(&self, samples: &[f32]) -> Result<Vec<f32>> {
@@ -122,12 +132,13 @@ impl ContinuousVadProcessor {
         let mut resampled = Vec::with_capacity(output_len);
 
         // Apply simple low-pass filter before downsampling to reduce aliasing
-        let cutoff_freq = 0.4; // Normalized frequency (0.4 * Nyquist)
+        let cutoff_freq = 0.4; // Normalized frequency (0.4 * output Nyquist)
         let mut filtered_samples = Vec::with_capacity(samples.len());
-        
-        // Simple moving average filter (basic low-pass)
-        let filter_size = (self.sample_rate as f64 / (cutoff_freq * self.sample_rate as f64)) as usize;
-        let filter_size = std::cmp::max(1, std::cmp::min(filter_size, 5)); // Limit filter size
+
+        // Simple moving average filter (basic low-pass), sized to the actual
+        // downsampling ratio so a bigger decimation (e.g. 48kHz -> 16kHz) gets
+        // meaningfully more anti-aliasing than a near-1:1 resample.
+        let filter_size = Self::antialias_filter_size(ratio, cutoff_freq);
         
         for i in 0..samples.len() {
             let start = if i >= filter_size { i - filter_size } else { 0 };
@@ -444,6 +455,20 @@ mod tests {
         }
 
         samples
+    }
+
+    #[test]
+    fn antialias_filter_size_scales_with_downsample_ratio() {
+        // A bigger decimation ratio (higher input rate relative to the 16kHz
+        // target) needs a longer anti-alias filter, not a fixed constant.
+        let filter_48k = ContinuousVadProcessor::antialias_filter_size(48000.0 / 16000.0, 0.4);
+        let filter_24k = ContinuousVadProcessor::antialias_filter_size(24000.0 / 16000.0, 0.4);
+        let filter_near_1to1 = ContinuousVadProcessor::antialias_filter_size(1.01, 0.4);
+
+        assert!(filter_48k > filter_24k, "48kHz filter ({filter_48k}) should exceed 24kHz filter ({filter_24k})");
+        assert!(filter_24k > filter_near_1to1, "24kHz filter ({filter_24k}) should exceed a near-1:1 resample ({filter_near_1to1})");
+        assert_eq!(filter_48k, 15);
+        assert_eq!(filter_24k, 8);
     }
 
     #[test]
