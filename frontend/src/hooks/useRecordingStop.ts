@@ -147,6 +147,10 @@ export function useRecordingStop(
   const handleRecordingStop = useCallback(async (isCallApi: boolean) => {
     if (recordingStoppedDataRef.current) {
       await recordingStoppedDataRef.current;
+      // Clear once consumed so a later recording session's handleRecordingStop
+      // call can never await this session's already-resolved promise instead of
+      // waiting for its own 'recording-stopped' event to populate fresh data.
+      recordingStoppedDataRef.current = null;
     }
 
     // Guard: prevent duplicate/concurrent stop calls
@@ -258,8 +262,14 @@ export function useRecordingStop(
 
       // Save to SQLite
       // NOTE: enabled to save COMPLETE transcripts after frontend receives all updates
-      // This ensures user sees all transcripts streaming in before database save
-      if (isCallApi && transcriptionComplete == true) {
+      // This ensures user sees all transcripts streaming in before database save.
+      // Saved even if the transcription-complete wait timed out: whatever transcripts
+      // have accumulated in transcriptsRef by now are real recorded data and must not
+      // be silently discarded just because the backend was still draining its queue.
+      if (isCallApi) {
+        if (!transcriptionComplete) {
+          console.warn('Saving meeting despite transcription wait timeout; some audio may still be processing');
+        }
 
         setStatus(RecordingStatus.SAVING, 'Saving meeting to database...');
 
@@ -370,18 +380,34 @@ export function useRecordingStop(
           // Mark as completed
           setStatus(RecordingStatus.COMPLETED);
 
-          // Show success toast with navigation option
-          toast.success('Recording saved successfully!', {
-            description: `${freshTranscripts.length} transcript segments saved.`,
-            action: {
-              label: 'View Meeting',
-              onClick: () => {
-                router.push(`/meeting-details?id=${meetingId}`);
-                Analytics.trackButtonClick('view_meeting_from_toast', 'recording_complete');
-              }
-            },
-            duration: 10000,
-          });
+          // Show success toast with navigation option. If the transcription wait
+          // timed out, warn instead of claiming a clean success - the recording is
+          // saved either way, but late audio chunks may not have made it into it.
+          if (transcriptionComplete) {
+            toast.success('Recording saved successfully!', {
+              description: `${freshTranscripts.length} transcript segments saved.`,
+              action: {
+                label: 'View Meeting',
+                onClick: () => {
+                  router.push(`/meeting-details?id=${meetingId}`);
+                  Analytics.trackButtonClick('view_meeting_from_toast', 'recording_complete');
+                }
+              },
+              duration: 10000,
+            });
+          } else {
+            toast.warning('Recording saved, but transcription may be incomplete', {
+              description: `${freshTranscripts.length} transcript segments saved. Some audio may still have been processing when the wait timed out.`,
+              action: {
+                label: 'View Meeting',
+                onClick: () => {
+                  router.push(`/meeting-details?id=${meetingId}`);
+                  Analytics.trackButtonClick('view_meeting_from_toast', 'recording_complete');
+                }
+              },
+              duration: 10000,
+            });
+          }
 
           // Auto-navigate after a short delay with source parameter. Tracked in a ref so
           // it can be cancelled above if a new recording starts before it fires.
@@ -494,13 +520,20 @@ export function useRecordingStop(
   });
 
   useEffect(() => {
-    (window as any).handleRecordingStop = (callApi: boolean = true) => {
+    const ownCallback = (callApi: boolean = true) => {
       handleRecordingStopRef.current(callApi);
     };
+    (window as any).handleRecordingStop = ownCallback;
 
-    // Cleanup on unmount
+    // Cleanup on unmount. This hook is instantiated more than once (the
+    // app-wide RecordingPostProcessingProvider and the home page both mount
+    // it), so only clear the global if it still points at this instance's
+    // own callback - otherwise an unmounting instance could delete a
+    // still-live sibling instance's registration.
     return () => {
-      delete (window as any).handleRecordingStop;
+      if ((window as any).handleRecordingStop === ownCallback) {
+        delete (window as any).handleRecordingStop;
+      }
     };
   }, []);
 
