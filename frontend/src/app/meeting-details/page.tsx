@@ -9,6 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LoaderIcon } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
+import { RECOMMENDED_OLLAMA_MODEL } from "@/lib/onboarding-summary-model";
 
 interface MeetingDetailsResponse {
   id: string;
@@ -51,12 +52,12 @@ function MeetingDetailsContent() {
     error: transcriptError,
   } = usePaginatedTranscripts({ meetingId: meetingId || '' });
 
-  // Check if gemma3:1b model is available in Ollama
+  // Check if the recommended Ollama model is available
   const checkForGemmaModel = useCallback(async (): Promise<boolean> => {
     try {
       const models = await invoke('get_ollama_models', { endpoint: null }) as any[];
-      const hasGemma = models.some((m: any) => m.name === 'gemma3:1b');
-      console.log('🔍 Checked for gemma3:1b:', hasGemma);
+      const hasGemma = models.some((m: any) => m.name === RECOMMENDED_OLLAMA_MODEL);
+      console.log(`🔍 Checked for ${RECOMMENDED_OLLAMA_MODEL}:`, hasGemma);
       return hasGemma;
     } catch (error) {
       console.error('❌ Failed to check Ollama models:', error);
@@ -94,11 +95,11 @@ function MeetingDetailsContent() {
         return;
       }
 
-      // DB is empty - check if gemma3:1b exists as fallback
+      // DB is empty - check if the recommended model exists as fallback
       const hasGemma = await checkForGemmaModel();
 
       if (hasGemma) {
-        console.log('💾 DB empty, using gemma3:1b as initial default');
+        console.log(`💾 DB empty, using ${RECOMMENDED_OLLAMA_MODEL} as initial default`);
 
         await invoke('api_save_model_config', {
           provider: 'ollama',

@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/command';
 import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
+import { RECOMMENDED_OLLAMA_MODEL } from '@/lib/onboarding-summary-model';
 
 export interface ModelConfig {
   provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai';
@@ -700,7 +701,7 @@ export function ModelSettingsModal({
 
   // Function to download recommended model
   const downloadRecommendedModel = async () => {
-    const recommendedModel = 'gemma3:1b';
+    const recommendedModel = RECOMMENDED_OLLAMA_MODEL;
 
     // Prevent duplicate downloads (defense in depth - backend also checks)
     if (isDownloading(recommendedModel)) {
@@ -1259,35 +1260,35 @@ export function ModelSettingsModal({
                           variant="outline"
                           size="sm"
                           onClick={downloadRecommendedModel}
-                          disabled={isDownloading('gemma3:1b')}
+                          disabled={isDownloading(RECOMMENDED_OLLAMA_MODEL)}
                           className="w-full"
                         >
-                          {isDownloading('gemma3:1b') ? (
+                          {isDownloading(RECOMMENDED_OLLAMA_MODEL) ? (
                             <>
                               <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                              Downloading gemma3:1b...
+                              Downloading {RECOMMENDED_OLLAMA_MODEL}...
                             </>
                           ) : (
                             <>
                               <Download className="mr-2 h-4 w-4" />
-                              Download gemma3:1b (Recommended, ~800MB)
+                              Download {RECOMMENDED_OLLAMA_MODEL} (Recommended, ~800MB)
                             </>
                           )}
                         </Button>
 
-                        {/* Show progress for gemma3:1b download */}
-                        {isDownloading('gemma3:1b') && getProgress('gemma3:1b') !== undefined && (
+                        {/* Show progress for the recommended model download */}
+                        {isDownloading(RECOMMENDED_OLLAMA_MODEL) && getProgress(RECOMMENDED_OLLAMA_MODEL) !== undefined && (
                           <div className="bg-white rounded-md border p-3">
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-medium text-blue-600">Downloading gemma3:1b</span>
+                              <span className="text-sm font-medium text-blue-600">Downloading {RECOMMENDED_OLLAMA_MODEL}</span>
                               <span className="text-sm font-semibold text-blue-600">
-                                {Math.round(getProgress('gemma3:1b')!)}%
+                                {Math.round(getProgress(RECOMMENDED_OLLAMA_MODEL)!)}%
                               </span>
                             </div>
                             <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
                               <div
                                 className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
-                                style={{ width: `${getProgress('gemma3:1b')}%` }}
+                                style={{ width: `${getProgress(RECOMMENDED_OLLAMA_MODEL)}%` }}
                               />
                             </div>
                           </div>

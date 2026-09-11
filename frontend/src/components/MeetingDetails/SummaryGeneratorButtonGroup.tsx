@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { useState, useEffect, useRef, ReactNode } from 'react';
 import { isOllamaNotInstalledError } from '@/lib/utils';
 import { BuiltInModelInfo } from '@/lib/builtin-ai';
+import { RECOMMENDED_OLLAMA_MODEL } from '@/lib/onboarding-summary-model';
 
 interface SummaryGeneratorButtonGroupProps {
   languageSlot?: ReactNode;
@@ -201,7 +202,7 @@ export function SummaryGeneratorButtonGroup({
       if (!models || models.length === 0) {
         // No models available, show message and open settings
         toast.error(
-          'No Ollama models found. Please download gemma2:2b from Model Settings.',
+          `No Ollama models found. Please download ${RECOMMENDED_OLLAMA_MODEL} from Model Settings.`,
           { duration: 5000 }
         );
         setSettingsDialogOpen(true);
