@@ -7,6 +7,7 @@ import { configService, ModelConfig } from '@/services/configService';
 import { invoke } from '@tauri-apps/api/core';
 import Analytics from '@/lib/analytics';
 import { BetaFeatures, BetaFeatureKey, loadBetaFeatures, saveBetaFeatures } from '@/types/betaFeatures';
+import { setProviderModel } from '@/lib/format';
 
 export interface OllamaModel {
   name: string;
@@ -256,9 +257,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
                 // Seed per-provider model cache from DB
                 if (resolvedModel) {
-                  const map = JSON.parse(localStorage.getItem('providerModelMap') || '{}');
-                  map[data.provider] = resolvedModel;
-                  localStorage.setItem('providerModelMap', JSON.stringify(map));
+                  setProviderModel(data.provider, resolvedModel);
                 }
 
                 return; // Early return
@@ -279,9 +278,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
           // Seed per-provider model cache from DB
           if (data.model) {
-            const map = JSON.parse(localStorage.getItem('providerModelMap') || '{}');
-            map[data.provider] = data.model;
-            localStorage.setItem('providerModelMap', JSON.stringify(map));
+            setProviderModel(data.provider, data.model);
           }
         }
       } catch (error) {

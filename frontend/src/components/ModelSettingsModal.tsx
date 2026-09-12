@@ -30,6 +30,7 @@ import {
 import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
 import { RECOMMENDED_OLLAMA_MODEL } from '@/lib/onboarding-summary-model';
+import { getProviderModel, setProviderModel } from '@/lib/format';
 
 export interface ModelConfig {
   provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai';
@@ -608,8 +609,7 @@ export function ModelSettingsModal({
     if (modelConfig.model && providerModels.includes(modelConfig.model)) return;
 
     // Try to restore from localStorage cache
-    const map = JSON.parse(localStorage.getItem('providerModelMap') || '{}');
-    const cachedModel = map[modelConfig.provider];
+    const cachedModel = getProviderModel(modelConfig.provider);
     if (cachedModel && providerModels.includes(cachedModel)) {
       setModelConfig((prev: ModelConfig) => ({ ...prev, model: cachedModel }));
     }
@@ -656,9 +656,7 @@ export function ModelSettingsModal({
 
     // Persist confirmed model choice to per-provider cache
     if (updatedConfig.model) {
-      const map = JSON.parse(localStorage.getItem('providerModelMap') || '{}');
-      map[updatedConfig.provider] = updatedConfig.model;
-      localStorage.setItem('providerModelMap', JSON.stringify(map));
+      setProviderModel(updatedConfig.provider, updatedConfig.model);
     }
 
     // Update provider-specific key in context
@@ -821,14 +819,12 @@ export function ModelSettingsModal({
                 setError('');
 
                 // Save current provider's model to localStorage before switching
-                const map = JSON.parse(localStorage.getItem('providerModelMap') || '{}');
                 if (modelConfig.model) {
-                  map[modelConfig.provider] = modelConfig.model;
-                  localStorage.setItem('providerModelMap', JSON.stringify(map));
+                  setProviderModel(modelConfig.provider, modelConfig.model);
                 }
 
                 // Try to restore cached model for the new provider
-                const savedModel = map[provider];
+                const savedModel = getProviderModel(provider);
                 const providerModels = modelOptions[provider];
                 const defaultModel = providerModels && providerModels.length > 0
                   ? providerModels[0]

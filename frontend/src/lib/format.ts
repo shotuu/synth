@@ -14,6 +14,29 @@ export function formatSizeMb(sizeMb: number): string {
   return `${sizeMb}MB`;
 }
 
+const PROVIDER_MODEL_MAP_KEY = 'providerModelMap';
+
+/** Reads the last-used model cached for a given provider, if any. */
+export function getProviderModel(provider: string): string | undefined {
+  try {
+    const map = JSON.parse(localStorage.getItem(PROVIDER_MODEL_MAP_KEY) || '{}');
+    return map[provider];
+  } catch {
+    return undefined;
+  }
+}
+
+/** Caches the last-used model for a given provider. */
+export function setProviderModel(provider: string, model: string): void {
+  try {
+    const map = JSON.parse(localStorage.getItem(PROVIDER_MODEL_MAP_KEY) || '{}');
+    map[provider] = model;
+    localStorage.setItem(PROVIDER_MODEL_MAP_KEY, JSON.stringify(map));
+  } catch {
+    // Best-effort cache; ignore quota/parse errors.
+  }
+}
+
 /**
  * Formats a transcript timestamp as recording-relative [MM:SS] when
  * audio_start_time is available, falling back to the wall-clock timestamp
