@@ -1,7 +1,7 @@
 'use client';
 
 import { Transcript } from '@/types';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { RecordingStatusBar } from './RecordingStatusBar';
@@ -103,6 +103,102 @@ function cleanStopWords(text: string): string {
 
   return cleanedText;
 }
+
+// Memoized transcript row: cleanStopWords/cleanRepetitions runs multiple regex
+// passes per row, so without memoization every row re-runs that work on any
+// parent re-render (e.g. showConfidence toggling), not just the row that
+// actually changed. Takes primitives rather than the Transcript object so
+// React.memo's shallow comparison catches real no-op re-renders instead of
+// always seeing a "changed" object reference.
+const TranscriptRow = memo(function TranscriptRow({
+  text,
+  audioStartTime,
+  timestamp,
+  duration,
+  confidence,
+  isStreaming,
+  streamingVisibleText,
+  streamingFullText,
+  showConfidence,
+}: {
+  text: string;
+  audioStartTime: number | undefined;
+  timestamp: string | number;
+  duration: number | undefined;
+  confidence: number | undefined;
+  isStreaming: boolean;
+  streamingVisibleText: string | undefined;
+  streamingFullText: string | undefined;
+  showConfidence: boolean;
+}) {
+  const textToShow = isStreaming ? (streamingVisibleText ?? '') : text;
+  // Clean up text for display - remove repetitions and filler words
+  const filteredText = cleanStopWords(textToShow);
+  // Show [Silence] ONLY if the ORIGINAL transcript was empty (not just after filtering)
+  const originalWasEmpty = text.trim() === '';
+  const displayText = originalWasEmpty && !isStreaming ? '[Silence]' : filteredText;
+
+  // Sizer text: use cleaned version for proper sizing, fallback to [Silence] only if original was empty
+  const sizerText = cleanStopWords(isStreaming ? (streamingFullText ?? '') : text)
+    || (originalWasEmpty && !isStreaming ? '[Silence]' : '');
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 5 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.15 }}
+      className="mb-3"
+    >
+      <div className="flex items-start gap-2">
+        <Tooltip>
+          <TooltipTrigger>
+            <span className="font-mono text-xs text-gray-400 mt-1 flex-shrink-0 min-w-[50px]">
+              {audioStartTime !== undefined ? formatRecordingTime(audioStartTime) : timestamp}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {duration !== undefined && (
+              <span className="text-xs text-gray-400">
+                {duration.toFixed(1)}s
+                {confidence !== undefined && (
+                  <ConfidenceIndicator
+                    confidence={confidence}
+                    showIndicator={showConfidence}
+                  />
+                )}
+              </span>
+            )}
+          </TooltipContent>
+        </Tooltip>
+        <div className="flex-1">
+          {isStreaming ? (
+            // Streaming transcript - show in bubble (full width)
+            <div className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2">
+              <div className="relative">
+                <p className="text-base text-gray-800 leading-relaxed" style={{ visibility: 'hidden' }}>
+                  {sizerText}
+                </p>
+                <p className="text-base text-gray-800 leading-relaxed absolute top-0 left-0">
+                  {displayText}
+                </p>
+              </div>
+            </div>
+          ) : (
+            // Regular transcript - simple text
+            <div className="relative">
+              <p className="text-base text-gray-800 leading-relaxed" style={{ visibility: 'hidden' }}>
+                {sizerText}
+              </p>
+              <p className="text-base text-gray-800 leading-relaxed absolute top-0 left-0">
+                {displayText}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+});
 
 export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isRecording = false, isPaused = false, isProcessing = false, isStopping = false, enableStreaming = false }) => {
   const [speechDetected, setSpeechDetected] = useState(false);
@@ -269,75 +365,19 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
 
       {transcripts?.map((transcript, index) => {
         const isStreaming = streamingTranscript?.id === transcript.id;
-        const textToShow = isStreaming ? streamingTranscript.visibleText : transcript.text;
-        // Clean up text for display - remove repetitions and filler words
-        const filteredText = cleanStopWords(textToShow);
-        // Show [Silence] ONLY if the ORIGINAL transcript was empty (not just after filtering)
-        const originalWasEmpty = transcript.text.trim() === '';
-        const displayText = originalWasEmpty && !isStreaming ? '[Silence]' : filteredText;
-
-        // Sizer text: use cleaned version for proper sizing, fallback to [Silence] only if original was empty
-        const sizerText = cleanStopWords(isStreaming ? streamingTranscript.fullText : transcript.text)
-          || (originalWasEmpty && !isStreaming ? '[Silence]' : '');
-
         return (
-          <motion.div
+          <TranscriptRow
             key={transcript.id ? `${transcript.id}-${index}` : `transcript-${index}`}
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.15 }}
-            className="mb-3"
-          >
-            <div className="flex items-start gap-2">
-              <Tooltip>
-                <TooltipTrigger>
-                  <span className="font-mono text-xs text-gray-400 mt-1 flex-shrink-0 min-w-[50px]">
-                    {transcript.audio_start_time !== undefined
-                      ? formatRecordingTime(transcript.audio_start_time)
-                      : transcript.timestamp}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {transcript.duration !== undefined && (
-                    <span className="text-xs text-gray-400">
-                      {transcript.duration.toFixed(1)}s
-                      {transcript.confidence !== undefined && (
-                        <ConfidenceIndicator
-                          confidence={transcript.confidence}
-                          showIndicator={showConfidence}
-                        />
-                      )}
-                    </span>
-                  )}
-                </TooltipContent>
-              </Tooltip>
-              <div className="flex-1">
-                {isStreaming ? (
-                  // Streaming transcript - show in bubble (full width)
-                  <div className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2">
-                    <div className="relative">
-                      <p className="text-base text-gray-800 leading-relaxed" style={{ visibility: 'hidden' }}>
-                        {sizerText}
-                      </p>
-                      <p className="text-base text-gray-800 leading-relaxed absolute top-0 left-0">
-                        {displayText}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  // Regular transcript - simple text
-                  <div className="relative">
-                    <p className="text-base text-gray-800 leading-relaxed" style={{ visibility: 'hidden' }}>
-                      {sizerText}
-                    </p>
-                    <p className="text-base text-gray-800 leading-relaxed absolute top-0 left-0">
-                      {displayText}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </motion.div>
+            text={transcript.text}
+            audioStartTime={transcript.audio_start_time}
+            timestamp={transcript.timestamp}
+            duration={transcript.duration}
+            confidence={transcript.confidence}
+            isStreaming={isStreaming}
+            streamingVisibleText={isStreaming ? streamingTranscript.visibleText : undefined}
+            streamingFullText={isStreaming ? streamingTranscript.fullText : undefined}
+            showConfidence={showConfidence}
+          />
         );
       })}
 
