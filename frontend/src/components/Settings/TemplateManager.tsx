@@ -150,7 +150,7 @@ export function TemplateManager() {
     try {
       const removed = await invoke<boolean>('api_delete_custom_template', { templateId: id });
       if (!removed) {
-        toast.error("Can't delete a built-in template — only custom ones can be removed here");
+        toast.error("Can't delete a built-in template - only custom ones can be removed here");
         return;
       }
       toast.success('Template deleted');

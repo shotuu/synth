@@ -166,7 +166,7 @@ function SessionsPageInner() {
           <EmptyState
             icon={FolderIcon}
             title="No sessions yet"
-            description="Record a meeting, lecture, or chat and it'll show up here — organized by folder, type, and tag."
+            description="Record a meeting, lecture, or chat and it'll show up here - organized by folder, type, and tag."
           />
         ) : (
           <EmptyState

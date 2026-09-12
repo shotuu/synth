@@ -131,7 +131,7 @@ export function LiveSessionView({
         <button
           onClick={toggleTranscript}
           className="text-gray-400 hover:text-gray-700 transition-colors shrink-0"
-          title={transcriptCollapsed ? 'Show live transcript' : 'Hide transcript — write distraction-free'}
+          title={transcriptCollapsed ? 'Show live transcript' : 'Hide transcript - write distraction-free'}
         >
           {transcriptCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
         </button>
@@ -183,7 +183,7 @@ export function LiveSessionView({
           <div className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="px-5 pt-4 pb-24 max-w-[760px]">
               <div className="text-[11px] uppercase tracking-wider text-gray-400 mb-2 select-none">
-                Your notes <span className="normal-case tracking-normal">— saved with this session when you stop</span>
+                Your notes <span className="normal-case tracking-normal">- saved with this session when you stop</span>
               </div>
               <LiveNotesEditor />
             </div>

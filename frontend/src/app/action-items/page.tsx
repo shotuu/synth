@@ -119,7 +119,7 @@ export default function ActionItemsPage() {
         ) : (
           <EmptyState
             icon={PartyPopper}
-            title="Nothing open — nice work"
+            title="Nothing open - nice work"
             description="Every action item across your sessions is checked off."
           />
         )

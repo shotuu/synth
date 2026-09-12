@@ -168,9 +168,9 @@ export default function StorageManagerPage() {
             )}
           </div>
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500">
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-400" /> Audio — {formatBytes(stats.audio_bytes)}</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Attachments — {formatBytes(stats.attachments_bytes)}</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-400" /> Database — {formatBytes(stats.database_bytes)}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-400" /> Audio - {formatBytes(stats.audio_bytes)}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Attachments - {formatBytes(stats.attachments_bytes)}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-400" /> Database - {formatBytes(stats.database_bytes)}</span>
             <span className="ml-auto">{stats.sessions_with_retained_audio} of {stats.session_count} sessions retain audio</span>
           </div>
         </div>
@@ -294,7 +294,7 @@ export default function StorageManagerPage() {
                     {formatDistanceToNow(new Date(session.created_at), { addSuffix: true })}
                   </span>
                   <span className="w-20 shrink-0 text-right text-xs text-gray-600 font-mono">
-                    {session.current_size_bytes ? formatBytes(session.current_size_bytes) : '—'}
+                    {session.current_size_bytes ? formatBytes(session.current_size_bytes) : '-'}
                   </span>
                   <span className="w-16 shrink-0 text-right text-[11px]">
                     {session.retained ? (

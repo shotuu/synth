@@ -42,24 +42,24 @@ interface FixtureMeeting {
 }
 
 const MEETINGS: FixtureMeeting[] = [
-  { id: 'demo-1', title: 'CS 229 Lecture 12 — Kernel Methods', context_type: 'lecture', folder_id: 'folder-cs229', tags: '["ml","kernels"]', created_at: daysAgo(0.2) },
-  { id: 'demo-2', title: 'Sprint Planning — Q3 Roadmap', context_type: 'meeting', folder_id: 'folder-work', tags: '["planning"]', created_at: daysAgo(1) },
+  { id: 'demo-1', title: 'CS 229 Lecture 12 - Kernel Methods', context_type: 'lecture', folder_id: 'folder-cs229', tags: '["ml","kernels"]', created_at: daysAgo(0.2) },
+  { id: 'demo-2', title: 'Sprint Planning - Q3 Roadmap', context_type: 'meeting', folder_id: 'folder-work', tags: '["planning"]', created_at: daysAgo(1) },
   { id: 'demo-3', title: 'Design Review: Export Pipeline', context_type: 'meeting', folder_id: 'folder-work', tags: '["design","exports"]', created_at: daysAgo(2) },
-  { id: 'demo-4', title: 'Office Hours — Problem Set 6', context_type: 'lecture', folder_id: 'folder-cs229', tags: null, created_at: daysAgo(4) },
+  { id: 'demo-4', title: 'Office Hours - Problem Set 6', context_type: 'lecture', folder_id: 'folder-cs229', tags: null, created_at: daysAgo(4) },
   { id: 'demo-5', title: 'Untitled Session', context_type: 'other', folder_id: null, tags: null, created_at: daysAgo(7) },
 ];
 
 const ACTION_ITEMS = [
-  { id: 'ai-1', meeting_id: 'demo-2', description: 'Draft the Q3 OKR doc and circulate before Friday', owner: 'Dan', due_date: '2026-07-11', done: false, created_at: daysAgo(1), meeting_title: 'Sprint Planning — Q3 Roadmap', folder_id: 'folder-work', context_type: 'meeting' },
-  { id: 'ai-2', meeting_id: 'demo-2', description: 'File the infra ticket for the staging cluster', owner: 'Priya', due_date: null, done: false, created_at: daysAgo(1), meeting_title: 'Sprint Planning — Q3 Roadmap', folder_id: 'folder-work', context_type: 'meeting' },
-  { id: 'ai-3', meeting_id: 'demo-4', description: 'Finish problem set 6, question 3 (SVM duality)', owner: null, due_date: '2026-07-08', done: true, created_at: daysAgo(4), meeting_title: 'Office Hours — Problem Set 6', folder_id: 'folder-cs229', context_type: 'lecture' },
+  { id: 'ai-1', meeting_id: 'demo-2', description: 'Draft the Q3 OKR doc and circulate before Friday', owner: 'Dan', due_date: '2026-07-11', done: false, created_at: daysAgo(1), meeting_title: 'Sprint Planning - Q3 Roadmap', folder_id: 'folder-work', context_type: 'meeting' },
+  { id: 'ai-2', meeting_id: 'demo-2', description: 'File the infra ticket for the staging cluster', owner: 'Priya', due_date: null, done: false, created_at: daysAgo(1), meeting_title: 'Sprint Planning - Q3 Roadmap', folder_id: 'folder-work', context_type: 'meeting' },
+  { id: 'ai-3', meeting_id: 'demo-4', description: 'Finish problem set 6, question 3 (SVM duality)', owner: null, due_date: '2026-07-08', done: true, created_at: daysAgo(4), meeting_title: 'Office Hours - Problem Set 6', folder_id: 'folder-cs229', context_type: 'lecture' },
 ];
 
 const TRANSCRIPT_SEGMENTS = [
   { text: "Okay, let's pick up where we left off with kernel methods.", speaker: 'Speaker 1', start: 0.0 },
   { text: 'The key idea is that we never need the feature map explicitly.', speaker: 'Speaker 1', start: 6.5 },
   { text: 'So the kernel trick lets us work in infinite dimensions?', speaker: 'Speaker 2', start: 14.2 },
-  { text: 'Exactly — as long as the kernel satisfies Mercer’s condition.', speaker: 'Speaker 1', start: 18.9 },
+  { text: 'Exactly - as long as the kernel satisfies Mercer’s condition.', speaker: 'Speaker 1', start: 18.9 },
 ];
 
 const SUMMARY_MARKDOWN = [
@@ -275,7 +275,7 @@ if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
       exe_extension: '',
       eol: '\n',
     };
-    console.info('[devBrowserShim] Tauri bridge not found — installed browser-preview mock with fixture data.');
+    console.info('[devBrowserShim] Tauri bridge not found - installed browser-preview mock with fixture data.');
   }
 }
 

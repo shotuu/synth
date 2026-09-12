@@ -98,7 +98,7 @@ export function CommandPalette() {
                   handleRecordingToggle();
                 }}
               >
-                <Mic className="w-4 h-4 mr-2" /> New session — start recording
+                <Mic className="w-4 h-4 mr-2" /> New session - start recording
               </CommandItem>
             )}
             <CommandItem onSelect={() => go('/')}>

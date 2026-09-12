@@ -149,7 +149,7 @@ export function SpeakerControls({
             <PopoverTrigger asChild>
               <button
                 className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${color.chip} hover:opacity-80`}
-                title={`${s.segment_count} segments — click to rename`}
+                title={`${s.segment_count} segments - click to rename`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${color.dot}`} />
                 {s.label}

@@ -80,7 +80,7 @@ export function ContextTypeSelector({
       <DropdownMenuTrigger asChild>
         <button
           className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${current.chip}`}
-          title="Session type — drives the summary structure"
+          title="Session type - drives the summary structure"
         >
           <span className={`w-1.5 h-1.5 rounded-full ${current.dot}`} />
           {current.label}
