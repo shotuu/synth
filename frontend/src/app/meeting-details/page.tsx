@@ -111,7 +111,7 @@ function MeetingDetailsContent() {
 
         setShouldAutoGenerate(true);
       } else {
-        console.log('⚠️ No model configured and gemma3:1b not found');
+        console.log(`⚠️ No model configured and ${RECOMMENDED_OLLAMA_MODEL} not found`);
       }
     } catch (error) {
       console.error('❌ Failed to setup auto-generation:', error);
@@ -162,10 +162,12 @@ function MeetingDetailsContent() {
       return;
     }
 
-    // The usePaginatedTranscripts hook automatically refetches when meetingId changes
-    // This function is kept for compatibility with onMeetingUpdated callback
-    console.log('fetchMeetingDetails called - pagination hook will handle refetch');
-  }, [meetingId]);
+    // usePaginatedTranscripts only refetches automatically when meetingId changes,
+    // not when backend-side fields (title, context_type, folder_path, tags) change
+    // in place - e.g. after summary generation. Force that refresh here so the
+    // metadata sync effect above picks up the updated values.
+    await refetch();
+  }, [meetingId, refetch]);
 
   // Reset states when meetingId changes (prevent race conditions)
   useEffect(() => {
