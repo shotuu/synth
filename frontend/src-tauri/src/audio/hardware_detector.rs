@@ -108,7 +108,7 @@ impl HardwareProfile {
     /// Detect available system memory in GB. `MEMORY_GB` overrides detection
     /// for manual tuning/testing; otherwise reads real system memory via
     /// sysinfo (same crate whisper_engine::system_monitor uses for live
-    /// resource checks) rather than assuming a fixed amount — a stub
+    /// resource checks) rather than assuming a fixed amount - a stub
     /// default here would misclassify performance_tier for any machine
     /// that isn't coincidentally close to that guess.
     fn detect_memory_gb() -> u8 {
@@ -320,11 +320,27 @@ mod tests {
         // bizarre for this to run on - this just confirms detect_memory_gb
         // reads something plausible rather than always returning a fixed
         // constant regardless of actual hardware.
+        //
+        // detect_memory_gb() checks MEMORY_GB before touching sysinfo at all,
+        // so this test must not assert against real sysinfo output while that
+        // env var could be set in the ambient environment (CI, another test's
+        // override, a developer's shell) - clear it for the duration of this
+        // assertion instead of assuming it's unset.
+        let prior = std::env::var("MEMORY_GB").ok();
+        std::env::remove_var("MEMORY_GB");
+
         let mut system = sysinfo::System::new();
         system.refresh_memory();
         let expected_gb = (system.total_memory() / (1024 * 1024 * 1024)).clamp(1, u8::MAX as u64) as u8;
 
-        assert_eq!(HardwareProfile::detect_memory_gb(), expected_gb);
+        let result = HardwareProfile::detect_memory_gb();
+
+        match prior {
+            Some(value) => std::env::set_var("MEMORY_GB", value),
+            None => std::env::remove_var("MEMORY_GB"),
+        }
+
+        assert_eq!(result, expected_gb);
     }
 
     #[test]
