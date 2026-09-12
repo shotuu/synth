@@ -1,16 +1,11 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { Pencil, Plus, Trash2, Loader2, X, LayoutTemplate } from 'lucide-react';
 import { SimpleSelect } from '@/components/ui/simple-select';
-
-interface TemplateSummary {
-  id: string;
-  name: string;
-  description: string;
-}
+import { useTemplates } from '@/hooks/meeting-details/useTemplates';
 
 interface TemplateSection {
   title: string;
@@ -52,28 +47,11 @@ function slugify(name: string): string {
  * duplication; only custom ones can be edited/deleted.
  */
 export function TemplateManager() {
-  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
-  const [isLoadingList, setIsLoadingList] = useState(false);
+  const { availableTemplates: templates, isLoadingTemplates: isLoadingList, refetchTemplates: loadList } = useTemplates();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TemplateDetail>(EMPTY_TEMPLATE);
   const [isSaving, setIsSaving] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
-
-  const loadList = async () => {
-    setIsLoadingList(true);
-    try {
-      setTemplates(await invoke<TemplateSummary[]>('api_list_templates'));
-    } catch (error) {
-      console.error('Failed to list templates:', error);
-      toast.error('Failed to load templates');
-    } finally {
-      setIsLoadingList(false);
-    }
-  };
-
-  useEffect(() => {
-    loadList();
-  }, []);
 
   const startNew = () => {
     setEditingId(null);

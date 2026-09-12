@@ -10,8 +10,10 @@ export function useTemplates() {
     description: string;
   }>>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('standard_meeting');
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
 
   const fetchTemplates = useCallback(async () => {
+    setIsLoadingTemplates(true);
     try {
       const templates = await invokeTauri('api_list_templates') as Array<{
         id: string;
@@ -22,6 +24,9 @@ export function useTemplates() {
       setAvailableTemplates(templates);
     } catch (error) {
       console.error('Failed to fetch templates:', error);
+      toast.error('Failed to load templates');
+    } finally {
+      setIsLoadingTemplates(false);
     }
   }, []);
 
@@ -57,6 +62,7 @@ export function useTemplates() {
 
   return {
     availableTemplates,
+    isLoadingTemplates,
     selectedTemplate,
     handleTemplateSelection,
     applyContextTypeDefault,
