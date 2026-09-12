@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { RecordingControls } from '@/components/RecordingControls';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
@@ -62,6 +62,13 @@ export default function Home() {
   } = useTranscriptRecovery();
 
   const router = useRouter();
+
+  // Tracks the current recoverableMeetings value so async handlers below can
+  // read the post-update count instead of the one closed over when they started.
+  const recoverableMeetingsRef = useRef(recoverableMeetings);
+  useEffect(() => {
+    recoverableMeetingsRef.current = recoverableMeetings;
+  }, [recoverableMeetings]);
 
   useEffect(() => {
     // Track page view
@@ -142,7 +149,7 @@ export default function Home() {
         await refetchMeetings();
 
         // If no more recoverable meetings, clear session flag so dialog can show again
-        if (recoverableMeetings.length === 0) {
+        if (recoverableMeetingsRef.current.length === 0) {
           sessionStorage.removeItem('recovery_dialog_shown');
         }
 
@@ -166,7 +173,7 @@ export default function Home() {
     setShowRecoveryDialog(false);
     // If user closes dialog and there are no more meetings, clear the flag
     // This allows the dialog to show again next session if new meetings appear
-    if (recoverableMeetings.length === 0) {
+    if (recoverableMeetingsRef.current.length === 0) {
       sessionStorage.removeItem('recovery_dialog_shown');
     }
   };
