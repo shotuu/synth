@@ -7,12 +7,12 @@ import {
   ModelInfo,
   ModelStatus,
   getModelIcon,
-  formatFileSize,
   getModelPerformanceBadge,
   isQuantizedModel,
   getModelTagline,
   WhisperAPI
 } from '../lib/whisper';
+import { formatSizeMb as formatFileSize } from '@/lib/format';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 interface ModelManagerProps {

@@ -245,7 +245,8 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
 
   useEffect(() => {
     console.log('Setting up recording event listeners');
-    let unsubscribes: (() => void)[] = [];
+    const unsubscribes: (() => void)[] = [];
+    const cleanedUpRef = { current: false };
 
     const setupListeners = async () => {
       try {
@@ -306,6 +307,12 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
             onTranscriptionError(errorMessage);
           } */
         });
+        if (cleanedUpRef.current) {
+          transcriptErrorUnsubscribe();
+          transcriptionErrorUnsubscribe();
+          return;
+        }
+        unsubscribes.push(transcriptErrorUnsubscribe, transcriptionErrorUnsubscribe);
 
         // Pause/Resume events are now handled by RecordingStateContext
         // No need for duplicate listeners here
@@ -315,12 +322,12 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
           console.log('speech-detected event received:', event);
           setSpeechDetected(true);
         });
-
-        unsubscribes = [
-          transcriptErrorUnsubscribe,
-          transcriptionErrorUnsubscribe,
-          speechDetectedUnsubscribe
-        ];
+        if (cleanedUpRef.current) {
+          speechDetectedUnsubscribe();
+          unsubscribes.forEach(u => u());
+          return;
+        }
+        unsubscribes.push(speechDetectedUnsubscribe);
         console.log('Recording event listeners set up successfully');
       } catch (error) {
         console.error('Failed to set up recording event listeners:', error);
@@ -331,6 +338,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
 
     return () => {
       console.log('Cleaning up recording event listeners');
+      cleanedUpRef.current = true;
       unsubscribes.forEach(unsubscribe => {
         if (unsubscribe && typeof unsubscribe === 'function') {
           unsubscribe();

@@ -8,9 +8,9 @@ import {
   ModelStatus,
   ParakeetAPI,
   getModelDisplayInfo,
-  getModelDisplayName,
-  formatFileSize
+  getModelDisplayName
 } from '../lib/parakeet';
+import { formatSizeMb as formatFileSize } from '@/lib/format';
 
 interface ParakeetModelManagerProps {
   selectedModel?: string;
@@ -73,15 +73,14 @@ export function ParakeetModelManager({
 
   // Set up event listeners for download progress
   useEffect(() => {
-    let unlistenProgress: (() => void) | null = null;
-    let unlistenComplete: (() => void) | null = null;
-    let unlistenError: (() => void) | null = null;
+    const unlisteners: (() => void)[] = [];
+    const cleanedUpRef = { current: false };
 
     const setupListeners = async () => {
       console.log('[ParakeetModelManager] Setting up event listeners...');
 
       // Download progress with throttling
-      unlistenProgress = await listen<{ modelName: string; progress: number }>(
+      const unlistenProgress = await listen<{ modelName: string; progress: number }>(
         'parakeet-model-download-progress',
         (event) => {
           const { modelName, progress } = event.payload;
@@ -107,9 +106,14 @@ export function ParakeetModelManager({
           }
         }
       );
+      if (cleanedUpRef.current) {
+        unlistenProgress();
+        return;
+      }
+      unlisteners.push(unlistenProgress);
 
       // Download complete
-      unlistenComplete = await listen<{ modelName: string }>(
+      const unlistenComplete = await listen<{ modelName: string }>(
         'parakeet-model-download-complete',
         (event) => {
           const { modelName } = event.payload;
@@ -147,9 +151,15 @@ export function ParakeetModelManager({
           }
         }
       );
+      if (cleanedUpRef.current) {
+        unlistenComplete();
+        unlisteners.forEach(u => u());
+        return;
+      }
+      unlisteners.push(unlistenComplete);
 
       // Download error
-      unlistenError = await listen<{ modelName: string; error: string }>(
+      const unlistenError = await listen<{ modelName: string; error: string }>(
         'parakeet-model-download-error',
         (event) => {
           const { modelName, error } = event.payload;
@@ -183,15 +193,20 @@ export function ParakeetModelManager({
           });
         }
       );
+      if (cleanedUpRef.current) {
+        unlistenError();
+        unlisteners.forEach(u => u());
+        return;
+      }
+      unlisteners.push(unlistenError);
     };
 
     setupListeners();
 
     return () => {
       console.log('[ParakeetModelManager] Cleaning up event listeners...');
-      if (unlistenProgress) unlistenProgress();
-      if (unlistenComplete) unlistenComplete();
-      if (unlistenError) unlistenError();
+      cleanedUpRef.current = true;
+      unlisteners.forEach((unlisten) => unlisten());
     };
   }, []); // Empty dependency array - listeners use refs for stable callbacks
 

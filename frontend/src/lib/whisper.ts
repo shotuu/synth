@@ -147,13 +147,6 @@ export function getStatusColor(status: ModelStatus): string {
   return 'gray';
 }
 
-export function formatFileSize(sizeMb: number): string {
-  if (sizeMb >= 1000) {
-    return `${(sizeMb / 1000).toFixed(1)}GB`;
-  }
-  return `${sizeMb}MB`;
-}
-
 // Helper function to get model type (f16, q5_1, q5_0, q4_0)
 export function getModelType(modelName: string): 'f16' | 'q5_1' | 'q5_0' | 'q4_0' {
   if (modelName.includes('-q5_1')) return 'q5_1';

@@ -1,6 +1,7 @@
 import React from 'react';
 import { ModelStatus } from '../lib/whisper';
 import { Button } from './ui/button';
+import { formatSizeMb } from '@/lib/format';
 
 interface ModelDownloadProgressProps {
   status: ModelStatus;
@@ -105,11 +106,6 @@ interface DownloadSummaryProps {
 }
 
 export function DownloadSummary({ totalModels, downloadedModels, totalSizeMb }: DownloadSummaryProps) {
-  const formatSize = (mb: number) => {
-    if (mb >= 1000) return `${(mb / 1000).toFixed(1)}GB`;
-    return `${mb}MB`;
-  };
-
   return (
     <div className="bg-gray-50 rounded-lg p-3 text-sm">
       <div className="flex items-center justify-between">
@@ -117,7 +113,7 @@ export function DownloadSummary({ totalModels, downloadedModels, totalSizeMb }: 
           📦 {downloadedModels} of {totalModels} models available
         </span>
         <span className="text-gray-600">
-          💾 {formatSize(totalSizeMb)} total
+          💾 {formatSizeMb(totalSizeMb)} total
         </span>
       </div>
       {downloadedModels > 0 && (

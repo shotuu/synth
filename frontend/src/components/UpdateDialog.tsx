@@ -10,6 +10,7 @@ import {
 } from './ui/dialog';
 import { Button } from './ui/button';
 import { updateService, UpdateInfo, UpdateProgress } from '@/services/updateService';
+import { formatBytes } from '@/lib/format';
 import { check, Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { toast } from 'sonner';
@@ -295,12 +296,4 @@ export function UpdateDialog({ open, onOpenChange, updateInfo }: UpdateDialogPro
       </DialogContent>
     </Dialog>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 }

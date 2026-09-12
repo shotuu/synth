@@ -115,13 +115,6 @@ export function getStatusColor(status: ModelStatus): string {
   return 'gray';
 }
 
-export function formatFileSize(sizeMb: number): string {
-  if (sizeMb >= 1000) {
-    return `${(sizeMb / 1000).toFixed(1)}GB`;
-  }
-  return `${sizeMb}MB`;
-}
-
 // Helper function to check if model is quantized
 export function isQuantizedModel(modelName: string): boolean {
   return modelName.includes('int8');

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { Database, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
+import { formatBytes as formatFileSize } from '@/lib/format';
 
 interface HomebrewDatabaseDetectorProps {
   onImportSuccess: () => void;
@@ -82,12 +83,6 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
   if (isChecking || !homebrewDbExists || isDismissed) {
     return null;
   }
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
 
   return (
     <div className="mb-4 p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">

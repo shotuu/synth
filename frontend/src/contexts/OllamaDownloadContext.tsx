@@ -44,6 +44,7 @@ export function OllamaDownloadProvider({ children }: { children: React.ReactNode
   useEffect(() => {
     console.log('[OllamaDownloadContext] Setting up event listeners');
     const unsubscribers: (() => void)[] = [];
+    const cleanedUpRef = { current: false };
 
     const setupListeners = async () => {
       try {
@@ -69,6 +70,10 @@ export function OllamaDownloadProvider({ children }: { children: React.ReactNode
             });
           }
         );
+        if (cleanedUpRef.current) {
+          unlistenProgress();
+          return;
+        }
         unsubscribers.push(unlistenProgress);
 
         // Download complete
@@ -97,6 +102,11 @@ export function OllamaDownloadProvider({ children }: { children: React.ReactNode
             });
           }
         );
+        if (cleanedUpRef.current) {
+          unlistenComplete();
+          unsubscribers.forEach(u => u());
+          return;
+        }
         unsubscribers.push(unlistenComplete);
 
         // Download error
@@ -125,6 +135,11 @@ export function OllamaDownloadProvider({ children }: { children: React.ReactNode
             });
           }
         );
+        if (cleanedUpRef.current) {
+          unlistenError();
+          unsubscribers.forEach(u => u());
+          return;
+        }
         unsubscribers.push(unlistenError);
 
         console.log('[OllamaDownloadContext] Event listeners set up successfully');
@@ -137,6 +152,7 @@ export function OllamaDownloadProvider({ children }: { children: React.ReactNode
 
     return () => {
       console.log('[OllamaDownloadContext] Cleaning up event listeners');
+      cleanedUpRef.current = true;
       unsubscribers.forEach(unsub => unsub());
     };
   }, []);

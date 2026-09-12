@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { CONTEXT_STYLES, ContextType } from '@/components/MeetingDetails/ContextTypeSelector';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
+import { formatBytes } from '@/lib/format';
 
 interface StorageStats {
   audio_bytes: number;
@@ -40,13 +41,6 @@ interface SessionAudioRow {
 }
 
 type SortKey = 'size' | 'date' | 'title';
-
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const exp = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / Math.pow(1024, exp)).toFixed(exp === 0 ? 0 : 1)} ${units[exp]}`;
-}
 
 const SUGGESTED_CLEANUP_DAYS = 30;
 
