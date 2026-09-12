@@ -8,6 +8,7 @@ import Analytics from '@/lib/analytics';
 import { isOllamaNotInstalledError } from '@/lib/utils';
 import { BuiltInModelInfo } from '@/lib/builtin-ai';
 import { RECOMMENDED_OLLAMA_MODEL } from '@/lib/onboarding-summary-model';
+import { formatTranscriptTime } from '@/lib/format';
 import {
   detectAndCacheSummaryLanguage,
   readMeetingSummaryLanguage,
@@ -443,19 +444,9 @@ export function useSummaryGeneration({
   }, []);
 
   const buildSummaryTranscriptPayload = useCallback((allTranscripts: Transcript[]) => {
-    const formatTime = (seconds: number | undefined, fallbackTimestamp: string): string => {
-      if (seconds === undefined) {
-        return fallbackTimestamp;
-      }
-      const totalSecs = Math.floor(seconds);
-      const mins = Math.floor(totalSecs / 60);
-      const secs = totalSecs % 60;
-      return `[${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}]`;
-    };
-
     return {
       transcriptText: allTranscripts
-        .map(t => `${formatTime(t.audio_start_time, t.timestamp)} ${t.text}`)
+        .map(t => `${formatTranscriptTime(t.audio_start_time, t.timestamp)} ${t.text}`)
         .join('\n'),
       transcriptTexts: allTranscripts.map(t => t.text),
     };
