@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Analytics from '@/lib/analytics';
 import { invoke } from '@tauri-apps/api/core';
@@ -70,6 +70,11 @@ interface SidebarContextType {
   refetchFolders: () => Promise<void>;
 }
 
+/** Id of the synthetic "Unfiled" bucket folder for meetings with no folder_id. */
+export const UNFILED_FOLDER_ID = 'meetings';
+/** Sentinel currentMeeting/route id meaning "no meeting selected / home". */
+export const INTRO_CALL_ID = 'intro-call';
+
 const SidebarContext = createContext<SidebarContextType | null>(null);
 
 export const useSidebar = () => {
@@ -81,7 +86,7 @@ export const useSidebar = () => {
 };
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
-  const [currentMeeting, setCurrentMeeting] = useState<CurrentMeeting | null>({ id: 'intro-call', title: '+ New Call' });
+  const [currentMeeting, setCurrentMeeting] = useState<CurrentMeeting | null>({ id: INTRO_CALL_ID, title: '+ New Call' });
   // Visible by default; hidden is a persisted preference (Phase 10's sidebar
   // hides entirely rather than shrinking to an icon rail, so defaulting to
   // hidden would leave a new user with no visible navigation).
@@ -90,7 +95,6 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     setIsCollapsed(localStorage.getItem('synth_sidebar_hidden') === '1');
   }, []);
   const [meetings, setMeetings] = useState<CurrentMeeting[]>([]);
-  const [sidebarItems, setSidebarItems] = useState<SidebarItem[]>([]);
   const [isMeetingActive, setIsMeetingActive] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -166,48 +170,53 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
   // Build the real folder tree (nested by parent_folder_id), each folder's
   // children including its subfolders and the meetings assigned to it.
-  // Meetings with no folder_id fall into the existing 'meetings' bucket,
+  // Meetings with no folder_id fall into the existing UNFILED_FOLDER_ID bucket,
   // keeping all of index.tsx's special-casing for that id (always expanded,
   // search indicator, etc.) working unchanged.
-  const buildFolderNode = (folder: OrgFolder): SidebarItem => {
-    const subfolders = folders
-      .filter(f => f.parent_folder_id === folder.id)
-      .sort((a, b) => a.sort_order - b.sort_order)
-      .map(buildFolderNode);
-    const folderMeetings = meetings
-      .filter(m => m.folderId === folder.id)
-      .map(meeting => ({
-        id: meeting.id,
-        title: meeting.title,
-        type: 'file' as const,
-        contextType: meeting.contextType,
-      }));
-    return {
-      id: folder.id,
-      title: folder.name,
-      type: 'folder' as const,
-      icon: folder.icon,
-      isRealFolder: true,
-      children: [...subfolders, ...folderMeetings],
+  // Memoized on [folders, meetings] so this tree (and the sidebarItems it
+  // feeds) is only rebuilt when the underlying data actually changes, not on
+  // every render of this app-wide provider.
+  const sidebarItems = useMemo<SidebarItem[]>(() => {
+    const buildFolderNode = (folder: OrgFolder): SidebarItem => {
+      const subfolders = folders
+        .filter(f => f.parent_folder_id === folder.id)
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map(buildFolderNode);
+      const folderMeetings = meetings
+        .filter(m => m.folderId === folder.id)
+        .map(meeting => ({
+          id: meeting.id,
+          title: meeting.title,
+          type: 'file' as const,
+          contextType: meeting.contextType,
+        }));
+      return {
+        id: folder.id,
+        title: folder.name,
+        type: 'folder' as const,
+        icon: folder.icon,
+        isRealFolder: true,
+        children: [...subfolders, ...folderMeetings],
+      };
     };
-  };
 
-  const baseItems: SidebarItem[] = [
-    ...folders
-      .filter(f => f.parent_folder_id === null)
-      .sort((a, b) => a.sort_order - b.sort_order)
-      .map(buildFolderNode),
-    {
-      id: 'meetings',
-      title: 'Unfiled',
-      type: 'folder' as const,
-      children: [
-        ...meetings
-          .filter(m => !m.folderId)
-          .map(meeting => ({ id: meeting.id, title: meeting.title, type: 'file' as const, contextType: meeting.contextType }))
-      ]
-    },
-  ];
+    return [
+      ...folders
+        .filter(f => f.parent_folder_id === null)
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map(buildFolderNode),
+      {
+        id: UNFILED_FOLDER_ID,
+        title: 'Unfiled',
+        type: 'folder' as const,
+        children: [
+          ...meetings
+            .filter(m => !m.folderId)
+            .map(meeting => ({ id: meeting.id, title: meeting.title, type: 'file' as const, contextType: meeting.contextType }))
+        ]
+      },
+    ];
+  }, [folders, meetings]);
 
 
   const toggleCollapse = () => {
@@ -219,15 +228,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   // Update current meeting when on home page
   useEffect(() => {
     if (pathname === '/') {
-      setCurrentMeeting({ id: 'intro-call', title: '+ New Call' });
+      setCurrentMeeting({ id: INTRO_CALL_ID, title: '+ New Call' });
     }
-    setSidebarItems(baseItems);
   }, [pathname]);
-
-  // Update sidebar items when meetings or folders change
-  useEffect(() => {
-    setSidebarItems(baseItems);
-  }, [meetings, folders]);
 
   // Function to handle recording toggle from sidebar
   const handleRecordingToggle = () => {

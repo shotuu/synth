@@ -3,6 +3,15 @@
 import React, { useState } from 'react';
 import { ChevronRight, Folder as FolderIcon, Inbox, Pencil, Trash2, Check } from 'lucide-react';
 import { CONTEXT_STYLES, ContextType } from '@/components/MeetingDetails/ContextTypeSelector';
+import { UNFILED_FOLDER_ID } from './SidebarProvider';
+
+/** Shared "Enter commits / Escape cancels" keydown wiring for inline rename/create inputs. */
+export function onEnterEscape(onCommit: () => void, onCancel: () => void) {
+  return (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') onCommit();
+    if (e.key === 'Escape') onCancel();
+  };
+}
 
 export interface TreeItem {
   id: string;
@@ -25,7 +34,7 @@ interface FolderTreeProps {
   onToggleFolder: (id: string) => void;
   activeMeetingId?: string;
   onOpenItem: (item: TreeItem) => void;
-  transcriptMatches?: TranscriptMatch[];
+  transcriptMatches?: Map<string, TranscriptMatch>;
   // Folder management
   onRenameFolder: (folderId: string, name: string) => void;
   onDeleteFolder: (folderId: string) => void;
@@ -64,8 +73,8 @@ function TreeNode({
   const [dragOver, setDragOver] = useState(false);
 
   const isExpanded = props.expandedFolders.has(item.id);
-  const isUnfiled = item.id === 'meetings';
-  const match = props.transcriptMatches?.find((m) => m.id === item.id);
+  const isUnfiled = item.id === UNFILED_FOLDER_ID;
+  const match = props.transcriptMatches?.get(item.id);
 
   if (item.type === 'folder') {
     const commitRename = () => {
@@ -116,10 +125,7 @@ function TreeNode({
               onClick={(e) => e.stopPropagation()}
               onChange={(e) => setRenameValue(e.target.value)}
               onBlur={commitRename}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') commitRename();
-                if (e.key === 'Escape') setRenaming(false);
-              }}
+              onKeyDown={onEnterEscape(commitRename, () => setRenaming(false))}
               className="flex-1 min-w-0 text-[13px] bg-transparent border-b border-blue-400 outline-none"
             />
           ) : (
@@ -184,7 +190,7 @@ function TreeNode({
                 </div>
               ) : (
                 item.children.map((child) => (
-                  <TreeNode key={child.id} item={child} depth={1} {...props} />
+                  <TreeNode key={child.id} item={child} depth={depth + 1} {...props} />
                 ))
               )}
             </div>

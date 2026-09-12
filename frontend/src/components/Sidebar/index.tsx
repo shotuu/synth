@@ -16,7 +16,7 @@ import {
   PanelLeftOpen,
 } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
-import { useSidebar } from './SidebarProvider';
+import { useSidebar, UNFILED_FOLDER_ID, INTRO_CALL_ID } from './SidebarProvider';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
 import { ConfirmationModal } from '../ConfirmationModel/confirmation-modal';
 import Analytics from '@/lib/analytics';
@@ -28,7 +28,7 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { Dialog, DialogContent, DialogFooter, DialogTitle } from '@/components/ui/dialog';
 import { VisuallyHidden } from '@/components/ui/visually-hidden';
 import Info from '../Info';
-import { FolderTree, TreeItem } from './FolderTree';
+import { FolderTree, TreeItem, TranscriptMatch, onEnterEscape } from './FolderTree';
 
 const WIDTH_STORAGE_KEY = 'synth_sidebar_width';
 const MIN_WIDTH = 200;
@@ -100,7 +100,7 @@ const Sidebar: React.FC = () => {
   };
 
   // ── Tree expansion ─────────────────────────────────────────────────────
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['meetings']));
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([UNFILED_FOLDER_ID]));
   const seenFolderIdsRef = useRef<Set<string>>(new Set());
   const { folders } = useSidebar();
   useEffect(() => {
@@ -157,6 +157,13 @@ const Sidebar: React.FC = () => {
     return sidebarItems.map(filterNode).filter((i): i is TreeItem => i !== null);
   }, [sidebarItems, searchQuery, searchResults]);
 
+  // O(1) lookup for FolderTree's per-row match rendering, built once here
+  // instead of each row doing a linear find() over searchResults.
+  const transcriptMatchMap = useMemo((): Map<string, TranscriptMatch> | undefined => {
+    if (!searchQuery.trim()) return undefined;
+    return new Map(searchResults.map((r) => [r.id, { id: r.id, matchContext: r.matchContext }]));
+  }, [searchQuery, searchResults]);
+
   // While searching, expand everything that survived the filter.
   const effectiveExpanded = useMemo(() => {
     if (!searchQuery.trim()) return expandedFolders;
@@ -206,7 +213,7 @@ const Sidebar: React.FC = () => {
     try {
       await invoke('api_delete_folder', { folderId });
       await Promise.all([refetchFolders(), refetchMeetings()]);
-      toast.success('Folder deleted — sessions inside were kept, just unfiled');
+      toast.success('Folder deleted - sessions inside were kept, just unfiled');
     } catch (error) {
       console.error('Failed to delete folder:', error);
       toast.error('Failed to delete folder');
@@ -253,7 +260,7 @@ const Sidebar: React.FC = () => {
       Analytics.trackMeetingDeleted(itemId);
       toast.success('Session deleted', { description: 'All associated data has been removed' });
       if (currentMeeting?.id === itemId) {
-        setCurrentMeeting({ id: 'intro-call', title: '+ New Call' });
+        setCurrentMeeting({ id: INTRO_CALL_ID, title: '+ New Call' });
         router.push('/');
       }
     } catch (error) {
@@ -290,7 +297,7 @@ const Sidebar: React.FC = () => {
   // ── Navigation ─────────────────────────────────────────────────────────
   const openItem = (item: TreeItem) => {
     setCurrentMeeting({ id: item.id, title: item.title });
-    const basePath = item.id.startsWith('intro-call')
+    const basePath = item.id === INTRO_CALL_ID
       ? '/'
       : `/meeting-details?id=${item.id}`;
     router.push(basePath);
@@ -445,13 +452,10 @@ const Sidebar: React.FC = () => {
                 placeholder="Folder name"
                 onChange={(e) => setNewFolderName(e.target.value)}
                 onBlur={handleCreateFolder}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateFolder();
-                  if (e.key === 'Escape') {
-                    setIsCreatingFolder(false);
-                    setNewFolderName('');
-                  }
-                }}
+                onKeyDown={onEnterEscape(handleCreateFolder, () => {
+                  setIsCreatingFolder(false);
+                  setNewFolderName('');
+                })}
                 className="flex-1 min-w-0 text-[13px] bg-transparent outline-none"
               />
             </div>
@@ -464,7 +468,7 @@ const Sidebar: React.FC = () => {
               onToggleFolder={toggleFolder}
               activeMeetingId={currentMeeting?.id}
               onOpenItem={openItem}
-              transcriptMatches={searchQuery.trim() ? searchResults : undefined}
+              transcriptMatches={transcriptMatchMap}
               onRenameFolder={handleRenameFolder}
               onDeleteFolder={handleDeleteFolder}
               onRenameMeeting={(meetingId, currentTitle) => {
@@ -533,13 +537,10 @@ const Sidebar: React.FC = () => {
               type="text"
               value={editingTitle}
               onChange={(e) => setEditingTitle(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleEditConfirm();
-                if (e.key === 'Escape') {
-                  setEditModalState({ isOpen: false, meetingId: null });
-                  setEditingTitle('');
-                }
-              }}
+              onKeyDown={onEnterEscape(handleEditConfirm, () => {
+                setEditModalState({ isOpen: false, meetingId: null });
+                setEditingTitle('');
+              })}
               className="w-full px-3 py-2 border border-gray-300 rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Session title"
               autoFocus
