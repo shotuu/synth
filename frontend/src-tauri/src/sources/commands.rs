@@ -14,7 +14,18 @@ use crate::database::repositories::note_audio::{NoteAudio, NoteAudioRepository};
 use crate::state::AppState;
 
 /// Root directory for attachment storage: <app_data>/attachments/<meeting_id>/
+///
+/// meeting_id is always server-generated (`format!("meeting-{}", Uuid::new_v4())`)
+/// in every current UI flow, never free-text a user types, so this isn't
+/// reachable today -- but summary/templates/loader.rs rejects path separators
+/// in its own id-to-path join for the same reason (a real path-traversal bug
+/// was found and fixed there), so this guard exists for the same
+/// defense-in-depth against a manually-driven `invoke()` call.
 fn attachments_dir<R: Runtime>(app: &AppHandle<R>, meeting_id: &str) -> Result<PathBuf, String> {
+    if meeting_id.trim().is_empty() || meeting_id.contains(['/', '\\', '.']) {
+        return Err("Meeting id must be non-empty and contain no path separators".to_string());
+    }
+
     let base = app
         .path()
         .app_data_dir()
