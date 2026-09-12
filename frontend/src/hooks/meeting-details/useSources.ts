@@ -98,9 +98,16 @@ export function useSources(meetingId: string): UseSourcesResult {
           });
         } catch (error) {
           console.error('Failed to save notes:', error);
-          toast.error('Failed to save your notes');
+          // Only surface the error if we're still viewing the meeting this save was for -
+          // the meeting can switch while the invoke() above is in flight, and clearTimeout
+          // on unmount/meetingId change can't cancel a call that already started.
+          if (meetingIdRef.current === targetMeetingId) {
+            toast.error('Failed to save your notes');
+          }
         } finally {
-          setIsSavingNotes(false);
+          if (meetingIdRef.current === targetMeetingId) {
+            setIsSavingNotes(false);
+          }
         }
       }, NOTES_AUTOSAVE_DELAY_MS);
     },
@@ -134,9 +141,13 @@ export function useSources(meetingId: string): UseSourcesResult {
   const deleteAttachment = useCallback(
     async (attachmentId: string) => {
       try {
-        await invoke<boolean>('api_delete_attachment', { attachmentId });
-        setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
-        toast.success('File removed');
+        const deleted = await invoke<boolean>('api_delete_attachment', { attachmentId });
+        if (deleted) {
+          setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+          toast.success('File removed');
+        } else {
+          toast.error('Failed to remove file');
+        }
       } catch (error) {
         console.error('Failed to delete attachment:', error);
         toast.error('Failed to remove file');
