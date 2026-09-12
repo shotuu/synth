@@ -76,9 +76,10 @@ export function BuiltInModelManager({
   // Listen for download progress events
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let cleanedUp = false;
 
     const setupListener = async () => {
-      unlisten = await listen('builtin-ai-download-progress', (event: any) => {
+      const fn = await listen('builtin-ai-download-progress', (event: any) => {
         const { model, progress, downloaded_mb, total_mb, speed_mbps, status } = event.payload;
 
         // Update percentage progress
@@ -187,11 +188,17 @@ export function BuiltInModelManager({
           // Don't call fetchModels() - it would overwrite error status with not_downloaded
         }
       });
+      if (cleanedUp) {
+        fn();
+        return;
+      }
+      unlisten = fn;
     };
 
     setupListener();
 
     return () => {
+      cleanedUp = true;
       if (unlisten) {
         unlisten();
       }

@@ -121,15 +121,14 @@ export function ModelManager({
 
   // Set up event listeners for download progress
   useEffect(() => {
-    let unlistenProgress: (() => void) | null = null;
-    let unlistenComplete: (() => void) | null = null;
-    let unlistenError: (() => void) | null = null;
+    const unlisteners: (() => void)[] = [];
+    const cleanedUpRef = { current: false };
 
     const setupListeners = async () => {
       console.log('[ModelManager] Setting up event listeners...');
 
       // Download progress with throttling
-      unlistenProgress = await listen<{ modelName: string; progress: number }>(
+      const unlistenProgress = await listen<{ modelName: string; progress: number }>(
         'model-download-progress',
         (event) => {
           const { modelName, progress } = event.payload;
@@ -156,8 +155,14 @@ export function ModelManager({
         }
       );
 
+      if (cleanedUpRef.current) {
+        unlistenProgress();
+        return;
+      }
+      unlisteners.push(unlistenProgress);
+
       // Download complete
-      unlistenComplete = await listen<{ modelName: string }>(
+      const unlistenComplete = await listen<{ modelName: string }>(
         'model-download-complete',
         (event) => {
           const { modelName } = event.payload;
@@ -195,9 +200,15 @@ export function ModelManager({
           }
         }
       );
+      if (cleanedUpRef.current) {
+        unlistenComplete();
+        unlisteners.forEach(u => u());
+        return;
+      }
+      unlisteners.push(unlistenComplete);
 
       // Download error
-      unlistenError = await listen<{ modelName: string; error: string }>(
+      const unlistenError = await listen<{ modelName: string; error: string }>(
         'model-download-error',
         (event) => {
           const { modelName, error } = event.payload;
@@ -230,15 +241,20 @@ export function ModelManager({
           });
         }
       );
+      if (cleanedUpRef.current) {
+        unlistenError();
+        unlisteners.forEach(u => u());
+        return;
+      }
+      unlisteners.push(unlistenError);
     };
 
     setupListeners();
 
     return () => {
       console.log('[ModelManager] Cleaning up event listeners...');
-      if (unlistenProgress) unlistenProgress();
-      if (unlistenComplete) unlistenComplete();
-      if (unlistenError) unlistenError();
+      cleanedUpRef.current = true;
+      unlisteners.forEach((unlisten) => unlisten());
     };
   }, []); // Empty dependency array - listeners use refs for stable callbacks
 
