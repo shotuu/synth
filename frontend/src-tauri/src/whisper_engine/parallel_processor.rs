@@ -103,6 +103,11 @@ struct ChunkQueue {
     completed: std::collections::HashMap<u32, TranscriptionResult>,
     failed: std::collections::HashMap<u32, ProcessingError>,
     retry_queue: Vec<(AudioChunk, u32)>, // (chunk, retry_count)
+    // Chunks that failed and are backing off before rejoining retry_queue.
+    // Counted separately so the "all work done" check below doesn't treat a
+    // chunk mid-backoff as finished just because it's briefly in none of the
+    // other collections.
+    pending_backoff: usize,
 }
 
 impl ParallelProcessor {
@@ -176,6 +181,7 @@ impl ParallelProcessor {
             queue.completed.clear();
             queue.failed.clear();
             queue.retry_queue.clear();
+            queue.pending_backoff = 0;
         }
 
         // Reset state
@@ -316,11 +322,24 @@ impl ParallelProcessor {
                                 };
 
                                 if error.is_recoverable {
-                                    // Add to retry queue with delay
+                                    // Add to retry queue after a backoff delay. The delay is
+                                    // applied via a detached task rather than sleeping this
+                                    // worker in place, so a persistently-failing chunk backs off
+                                    // without stalling this worker's ability to pick up other
+                                    // pending/retry work in the meantime.
                                     let chunk_id = chunk.id;
-                                    queue.retry_queue.push((chunk, retry_count + 1));
-                                    warn!("Worker {} failed chunk {}, queued for retry {}/{}",
-                                          worker_id, chunk_id, retry_count + 1, config.max_retries);
+                                    let new_retry_count = retry_count + 1;
+                                    let retry_delay_ms = config.retry_delay_ms;
+                                    let chunk_queue_for_retry = chunk_queue.clone();
+                                    queue.pending_backoff += 1;
+                                    tokio::spawn(async move {
+                                        tokio::time::sleep(tokio::time::Duration::from_millis(retry_delay_ms)).await;
+                                        let mut queue = chunk_queue_for_retry.write().await;
+                                        queue.pending_backoff -= 1;
+                                        queue.retry_queue.push((chunk, new_retry_count));
+                                    });
+                                    warn!("Worker {} failed chunk {}, queued for retry {}/{} after {}ms backoff",
+                                          worker_id, chunk_id, new_retry_count, config.max_retries, retry_delay_ms);
                                 } else {
                                     // Mark as permanently failed
                                     queue.failed.insert(chunk.id, error.clone());
@@ -335,7 +354,8 @@ impl ParallelProcessor {
                     None => {
                         // No work available, check if we're done
                         let queue = chunk_queue.read().await;
-                        if queue.pending.is_empty() && queue.retry_queue.is_empty() && queue.processing.is_empty() {
+                        if queue.pending.is_empty() && queue.retry_queue.is_empty()
+                            && queue.processing.is_empty() && queue.pending_backoff == 0 {
                             break; // All work completed
                         }
 
@@ -496,6 +516,7 @@ impl ChunkQueue {
             completed: std::collections::HashMap::new(),
             failed: std::collections::HashMap::new(),
             retry_queue: Vec::new(),
+            pending_backoff: 0,
         }
     }
 }
