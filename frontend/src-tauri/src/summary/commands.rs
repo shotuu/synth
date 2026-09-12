@@ -12,9 +12,33 @@ use crate::summary::language_detection::{
 };
 use crate::summary::service::SummaryService;
 use log::{error as log_error, info as log_info, warn as log_warn};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tauri::{AppHandle, Runtime};
+
+/// Meetings with a summary generation currently in flight (concurrency guard).
+/// Mirrors diarization::commands::RUNNING: without this, two concurrent calls
+/// for the same meeting_id (e.g. auto-generate-on-stop racing a manual click)
+/// both proceed, each resetting the other's summary_processes row mid-flight
+/// and racing to write the final result, with only the second run's
+/// cancellation token reachable via api_cancel_summary.
+static PROCESSING: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
+
+/// RAII guard removing a meeting_id from PROCESSING when dropped. Runs during
+/// unwind too, so a panic inside the background task can't permanently wedge
+/// that meeting out of future summary generation attempts.
+struct ProcessingGuard(String);
+
+impl Drop for ProcessingGuard {
+    fn drop(&mut self) {
+        if let Ok(mut processing) = PROCESSING.lock() {
+            processing.remove(&self.0);
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SummaryResponse {
@@ -359,6 +383,17 @@ pub async fn api_process_transcript<R: Runtime>(
         &model
     );
 
+    {
+        let mut processing = PROCESSING.lock().map_err(|e| e.to_string())?;
+        if !processing.insert(m_id.clone()) {
+            return Err("Summary generation is already running for this session".to_string());
+        }
+    }
+    // Guard is dropped (releasing PROCESSING) on any early `?` return below;
+    // once we reach the spawn it's moved into the background task instead,
+    // so it stays held for the task's full lifetime including a panic.
+    let guard = ProcessingGuard(m_id.clone());
+
     let pool = state.db_manager.pool().clone();
     let final_prompt = custom_prompt.unwrap_or_else(|| "".to_string());
     let final_template_id = template_id.unwrap_or_else(|| "daily_standup".to_string());
@@ -397,6 +432,7 @@ pub async fn api_process_transcript<R: Runtime>(
     // Spawn background task for actual processing
     let meeting_id_clone = m_id.clone();
     tauri::async_runtime::spawn(async move {
+        let _guard = guard;
         SummaryService::process_transcript_background(
             app,
             pool,
