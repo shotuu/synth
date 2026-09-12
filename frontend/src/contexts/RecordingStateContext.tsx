@@ -133,6 +133,7 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
   useEffect(() => {
     console.log('[RecordingStateContext] Setting up event listeners');
     const unsubscribers: (() => void)[] = [];
+    const cleanedUpRef = { current: false };
 
     const setupListeners = async () => {
       try {
@@ -148,6 +149,10 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
           }));
           startPolling();
         });
+        if (cleanedUpRef.current) {
+          unlistenStarted();
+          return;
+        }
         unsubscribers.push(unlistenStarted);
 
         // Recording stopped
@@ -177,6 +182,11 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
           });
           stopPolling();
         });
+        if (cleanedUpRef.current) {
+          unlistenStopped();
+          unsubscribers.forEach(u => u());
+          return;
+        }
         unsubscribers.push(unlistenStopped);
 
         // Recording paused
@@ -188,6 +198,11 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
             isActive: false,
           }));
         });
+        if (cleanedUpRef.current) {
+          unlistenPaused();
+          unsubscribers.forEach(u => u());
+          return;
+        }
         unsubscribers.push(unlistenPaused);
 
         // Recording resumed
@@ -199,6 +214,11 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
             isActive: true,
           }));
         });
+        if (cleanedUpRef.current) {
+          unlistenResumed();
+          unsubscribers.forEach(u => u());
+          return;
+        }
         unsubscribers.push(unlistenResumed);
 
         console.log('[RecordingStateContext] Event listeners set up successfully');
@@ -211,6 +231,7 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
 
     return () => {
       console.log('[RecordingStateContext] Cleaning up event listeners');
+      cleanedUpRef.current = true;
       unsubscribers.forEach(unsub => unsub());
       stopPolling();
     };
