@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { Download, RefreshCw, BadgeAlert, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatSummaryModelSizeLabelFromMb } from '@/lib/onboarding-summary-model';
+import { ProgressBar } from '@/components/ui/progress-bar';
 
 interface ModelInfo {
   name: string;
@@ -482,12 +483,11 @@ export function BuiltInModelManager({
                       <span>{formatSummaryModelSizeLabelFromMb(model.size_mb)}</span>
                     )}
                   </div>
-                  <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-gray-800 to-gray-900 rounded-full transition-all duration-300"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
+                  <ProgressBar
+                    percent={progress}
+                    trackClassName="h-2.5 bg-gray-200"
+                    barClassName="bg-gradient-to-r from-gray-800 to-gray-900"
+                  />
                 </div>
               )}
             </div>

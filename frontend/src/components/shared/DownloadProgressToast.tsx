@@ -5,6 +5,7 @@ import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { X, Download, Check, Loader2, ArrowBigDownDash } from 'lucide-react';
 import { getDownloadTotalMb } from '@/lib/onboarding-summary-model';
+import { ProgressBar } from '@/components/ui/progress-bar';
 
 interface DownloadProgress {
   modelName: string;
@@ -94,12 +95,12 @@ function DownloadToastContent({
         ) : (
           <>
             {/* Progress bar */}
-            <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden mb-1.5">
-              <div
-                className="h-full bg-gray-900 rounded-full transition-all duration-300"
-                style={{ width: `${download.progress}%` }}
-              />
-            </div>
+            <ProgressBar
+              percent={download.progress}
+              trackClassName="h-1.5 bg-gray-200"
+              barClassName="bg-gray-900"
+              className="mb-1.5"
+            />
 
             {/* Progress text */}
             <div className="flex items-center justify-between text-xs text-gray-500">

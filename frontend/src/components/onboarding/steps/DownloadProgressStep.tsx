@@ -8,6 +8,7 @@ import { useOnboarding } from '@/contexts/OnboardingContext';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSummaryModelSizeLabel, getSummaryModelSizeMb } from '@/lib/onboarding-summary-model';
+import { ProgressBar } from '@/components/ui/progress-bar';
 
 const PARAKEET_MODEL = 'parakeet-tdt-0.6b-v3-int8';
 
@@ -426,12 +427,11 @@ export function DownloadProgressStep() {
       {/* Progress Bar */}
       {(state.status === 'downloading' || state.status === 'completed') && (
         <div className="space-y-2">
-          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-gray-700 to-gray-900 rounded-full transition-all duration-300"
-              style={{ width: `${state.progress}%` }}
-            />
-          </div>
+          <ProgressBar
+            percent={state.progress}
+            trackClassName="h-2 bg-gray-200"
+            barClassName="bg-gradient-to-r from-gray-700 to-gray-900"
+          />
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-600">
               {state.downloadedMb.toFixed(1)} {sizeUnit} / {state.totalMb.toFixed(1)} {sizeUnit}

@@ -31,6 +31,7 @@ import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
 import { RECOMMENDED_OLLAMA_MODEL } from '@/lib/onboarding-summary-model';
 import { getProviderModel, setProviderModel } from '@/lib/format';
+import { ProgressBar } from '@/components/ui/progress-bar';
 
 export interface ModelConfig {
   provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai';
@@ -1281,12 +1282,11 @@ export function ModelSettingsModal({
                                 {Math.round(getProgress(RECOMMENDED_OLLAMA_MODEL)!)}%
                               </span>
                             </div>
-                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
-                                style={{ width: `${getProgress(RECOMMENDED_OLLAMA_MODEL)}%` }}
-                              />
-                            </div>
+                            <ProgressBar
+                              percent={getProgress(RECOMMENDED_OLLAMA_MODEL)}
+                              trackClassName="h-2 bg-gray-200"
+                              barClassName="bg-gradient-to-r from-blue-500 to-blue-600"
+                            />
                           </div>
                         )}
                       </div>
@@ -1337,12 +1337,11 @@ export function ModelSettingsModal({
                                 <span className="text-sm font-medium text-blue-600">Downloading...</span>
                                 <span className="text-sm font-semibold text-blue-600">{Math.round(progress)}%</span>
                               </div>
-                              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
-                                  style={{ width: `${progress}%` }}
-                                />
-                              </div>
+                              <ProgressBar
+                                percent={progress}
+                                trackClassName="h-2 bg-gray-200"
+                                barClassName="bg-gradient-to-r from-blue-500 to-blue-600"
+                              />
                             </div>
                           )}
                         </div>
