@@ -1,9 +1,10 @@
 import { useRef, useState, useEffect, useCallback, RefObject } from "react";
 import { Virtualizer } from "@tanstack/react-virtual";
+import { TranscriptSegmentData } from "@/types";
 
 interface UseAutoScrollProps {
     scrollRef: RefObject<HTMLDivElement | null>;
-    segments: any[];
+    segments: TranscriptSegmentData[];
     isRecording: boolean;
     isPaused: boolean;
     activeSegmentId?: string;
